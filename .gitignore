@@ -1,0 +1,22 @@
+# Gradle / Android
+.gradle/
+**/build/
+!**/src/main/build/
+*.apk
+*.aar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Local
+.DS_Store
+Thumbs.db
+*.log
