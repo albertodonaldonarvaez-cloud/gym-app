@@ -127,20 +127,73 @@ app.post('/api/clients', authMiddleware, coachOnly, async (req, res) => {
 });
 
 // ─── EXERCISES ─────────────────────────────────────────────────────────────────
+const FREE_EXERCISE_CDN = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises';
+
+/**
+ * Construye el array de URLs de imagen para un ejercicio.
+ * Si tiene mediaFilename (viene del Free Exercise DB), genera ambas imágenes (0.jpg y 1.jpg).
+ * Si tiene mediaUrl custom (subida por el coach), la devuelve como único elemento.
+ */
+function buildImageUrls(exercise) {
+  if (exercise.mediaFilename) {
+    // Free Exercise DB: las imágenes están en /ExerciseId/0.jpg y /ExerciseId/1.jpg
+    const dir = exercise.mediaFilename.replace(/\/\d+\.jpg$/, '');
+    return [
+      `${FREE_EXERCISE_CDN}/${dir}/0.jpg`,
+      `${FREE_EXERCISE_CDN}/${dir}/1.jpg`,
+    ];
+  }
+  if (exercise.mediaUrl) return [exercise.mediaUrl];
+  return [];
+}
+
 app.get('/api/exercises', async (req, res) => {
   try {
-    const { category, search } = req.query;
+    const { category, search, muscle_group, page, limit } = req.query;
     const where = {};
     if (category && category !== 'Todos') where.category = category;
-    if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { muscleGroup: { contains: search, mode: 'insensitive' } }];
-    const exercises = await prisma.exercise.findMany({ where, orderBy: { name: 'asc' } });
-    res.json(exercises.map(e => ({
-      id: e.id, name: e.name, category: e.category, targetMuscle: e.muscleGroup,
-      equipment: e.equipment, instructions: e.instructions, defaultSets: e.defaultSets,
-      defaultReps: e.defaultReps, mediaUrl: e.mediaUrl, icon: 'dumbbell'
-    })));
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+    if (muscle_group && muscle_group !== 'Todos') where.muscleGroup = { contains: muscle_group, mode: 'insensitive' };
+    if (search) where.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { muscleGroup: { contains: search, mode: 'insensitive' } },
+      { equipment: { contains: search, mode: 'insensitive' } },
+    ];
+
+    const pageNum  = Math.max(1, parseInt(page)  || 1);
+    const pageSize = Math.min(200, parseInt(limit) || 50);
+
+    const [exercises, total] = await Promise.all([
+      prisma.exercise.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip: (pageNum - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.exercise.count({ where }),
+    ]);
+
+    res.json({
+      data: exercises.map(e => ({
+        id:           e.id,
+        name:         e.name,
+        category:     e.category,
+        targetMuscle: e.muscleGroup,
+        muscleGroup:  e.muscleGroup,
+        equipment:    e.equipment,
+        instructions: e.instructions,
+        defaultSets:  e.defaultSets,
+        defaultReps:  e.defaultReps,
+        mediaUrl:     e.mediaUrl,
+        imageUrls:    buildImageUrls(e),   // Array con URLs del CDN
+        icon:         'dumbbell',
+      })),
+      total,
+      page:  pageNum,
+      pages: Math.ceil(total / pageSize),
+    });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
+
 
 app.post('/api/exercises', authMiddleware, coachOnly, async (req, res) => {
   try {

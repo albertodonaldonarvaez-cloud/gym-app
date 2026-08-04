@@ -16,5 +16,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV NODE_ENV=production
 
-# Entrypoint: run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+# Entrypoint: migrate → seed (Free Exercise DB + users) → start server
+CMD ["sh", "-c", "npx prisma migrate deploy && node seed.js && node server.js"]

@@ -39,5 +39,23 @@ services:
       timeout: 10s
       retries: 3
 
+  gymaura-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: gymaura-web-coach
+    restart: unless-stopped
+    ports:
+      - "3005:80"
+    depends_on:
+      gymaura-backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   gymaura_pgdata:
+

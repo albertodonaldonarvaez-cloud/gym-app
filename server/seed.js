@@ -1,10 +1,14 @@
 'use strict';
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const { seedExercises } = require('./scripts/seed-exercises');
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('🌱 Seeding GymAura database...');
+
+  // ── 1. Poblar ejercicios desde Free Exercise DB (idempotente) ──
+  await seedExercises();
 
   // Create coach
   const coachHash = await bcrypt.hash('Coach2025!', 12);
