@@ -1,24 +1,20 @@
-# Imagen base oficial de Node.js ligera
 FROM node:20-alpine
 
-# Establecer directorio de trabajo en el contenedor
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
-# Copiar definiciones de dependencias
 COPY package*.json ./
+RUN npm install
 
-# Instalar dependencias de producción
-RUN npm ci --only=production
-
-# Copiar el código fuente de la API y la base de datos JSON inicial
 COPY . .
 
-# Exponer el puerto de la aplicación (3000 por defecto)
-EXPOSE 3000
+# Generate Prisma client
+RUN npx prisma generate
 
-# Variables de entorno por defecto
+EXPOSE 3000
 ENV PORT=3000
 ENV NODE_ENV=production
 
-# Comando para ejecutar el servidor
-CMD ["node", "server.js"]
+# Entrypoint: run migrations then start server
+CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]

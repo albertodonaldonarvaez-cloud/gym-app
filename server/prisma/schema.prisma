@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  COACH
+  CLIENT
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  name          String
+  role          Role     @default(CLIENT)
+  coachId       String?  @map("coach_id")
+  avatar        String   @default("")
+  goal          String   @default("Acondicionamiento Físico")
+  weightKg      Float    @default(70.0) @map("weight_kg")
+  heightCm      Int      @default(170) @map("height_cm")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  coach         User?    @relation("CoachClients", fields: [coachId], references: [id])
+  clients       User[]   @relation("CoachClients")
+  routinesAsCoach   RoutinePlan[] @relation("CoachPlans")
+  routinesAsAthlete RoutinePlan[] @relation("AthletePlans")
+  workoutLogs   WorkoutLog[]
+  setLogs       SetLog[]
+
+  @@map("users")
+}
+
+model Exercise {
+  id            String   @id @default(cuid())
+  name          String
+  muscleGroup   String   @map("muscle_group")
+  category      String   @default("General")
+  equipment     String   @default("Libre")
+  instructions  String   @default("")
+  defaultSets   Int      @default(4) @map("default_sets")
+  defaultReps   Int      @default(12) @map("default_reps")
+  mediaFilename String?  @map("media_filename")
+  mediaUrl      String?  @map("media_url")
+  hashMd5       String?  @map("hash_md5")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  setLogs       SetLog[]
+
+  @@map("exercises")
+}
+
+model RoutinePlan {
+  id         String   @id @default(cuid())
+  coachId    String   @map("coach_id")
+  athleteId  String   @map("athlete_id")
+  title      String   @default("Rutina Semanal")
+  description String  @default("Plan personalizado")
+  schedule   Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  coach      User     @relation("CoachPlans", fields: [coachId], references: [id])
+  athlete    User     @relation("AthletePlans", fields: [athleteId], references: [id])
+
+  @@map("routine_plans")
+}
+
+model WorkoutLog {
+  id              String   @id @default(cuid())
+  athleteId       String   @map("athlete_id")
+  date            DateTime @default(now())
+  durationSeconds Int?     @map("duration_seconds")
+  caloriesBurned  Float?   @map("calories_burned")
+  avgHr           Int?     @map("avg_hr")
+  source          String   @default("manual")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  athlete         User     @relation(fields: [athleteId], references: [id])
+  setLogs         SetLog[]
+
+  @@map("workout_logs")
+}
+
+model SetLog {
+  id           String   @id @default(uuid())
+  clientLogId  String   @unique @map("client_log_id")
+  workoutLogId String   @map("workout_log_id")
+  athleteId    String   @map("athlete_id")
+  exerciseId   String   @map("exercise_id")
+  weightKg     Float    @default(0) @map("weight_kg")
+  reps         Int      @default(0)
+  rpe          Float?   @default(0)
+  setNumber    Int      @default(1) @map("set_number")
+  notes        String   @default("")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  workoutLog   WorkoutLog @relation(fields: [workoutLogId], references: [id])
+  athlete      User       @relation(fields: [athleteId], references: [id])
+  exercise     Exercise   @relation(fields: [exerciseId], references: [id])
+
+  @@map("set_logs")
+}

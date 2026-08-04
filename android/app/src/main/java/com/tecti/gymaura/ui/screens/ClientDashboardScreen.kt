@@ -1,48 +1,62 @@
 package com.tecti.gymaura.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import android.content.Context
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.shape.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddAlert
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
+import coil.ImageLoader
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.request.ImageRequest
+import com.tecti.gymaura.data.local.AppDatabase
+import com.tecti.gymaura.data.local.SetLogEntity
 import com.tecti.gymaura.data.model.*
 import com.tecti.gymaura.data.remote.ServerRepository
-import com.tecti.gymaura.ui.components.GlassBadge
-import com.tecti.gymaura.ui.components.GlassButton
-import com.tecti.gymaura.ui.components.GlassCard
-import com.tecti.gymaura.ui.components.GlassChip
+import com.tecti.gymaura.ui.components.*
 import com.tecti.gymaura.ui.theme.*
+import com.tecti.gymaura.worker.SyncWorkoutWorker
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
+
+// ─── COIL IMAGE LOADER WITH GIF SUPPORT ───────────────────────────────────────
+fun buildCoilLoader(context: Context): ImageLoader {
+    return ImageLoader.Builder(context)
+        .components {
+            if (android.os.Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory())
+            else add(GifDecoder.Factory())
+        }
+        .build()
+}
 
 @Composable
 fun ClientDashboardScreen(
     onNavigateToCatalog: () -> Unit
 ) {
+    val context = LocalContext.current
+    val db = remember { AppDatabase.getDatabase(context) }
+    val dao = remember { db.setLogDao() }
+    val imageLoader = remember { buildCoilLoader(context) }
+    val scope = rememberCoroutineScope()
+
     val daysOfWeek = listOf("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
     val todayName = remember {
         val sdf = SimpleDateFormat("EEEE", Locale("es", "ES"))
@@ -54,93 +68,166 @@ fun ClientDashboardScreen(
     var clients by remember { mutableStateOf<List<Client>>(emptyList()) }
     var selectedClient by remember { mutableStateOf<Client?>(null) }
     var weeklyRoutine by remember { mutableStateOf<WeeklyRoutine?>(null) }
-    var weightLogs by remember { mutableStateOf<List<WeightLog>>(emptyList()) }
     var exercisesMap by remember { mutableStateOf<Map<String, Exercise>>(emptyMap()) }
-
-    var logModalExercise by remember { mutableStateOf<Exercise?>(null) }
     var loading by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
+
+    // Active workout mode state
+    var activeWorkoutMode by remember { mutableStateOf(false) }
+    var logModalExercise by remember { mutableStateOf<Exercise?>(null) }
+    var workoutStartTime by remember { mutableStateOf(0L) }
+    var elapsedSeconds by remember { mutableStateOf(0) }
+    var restTimerSeconds by remember { mutableStateOf(0) }
+    var isRestTimerRunning by remember { mutableStateOf(false) }
+
+    // Workout timer
+    LaunchedEffect(activeWorkoutMode) {
+        if (activeWorkoutMode) {
+            workoutStartTime = System.currentTimeMillis()
+            while (activeWorkoutMode) {
+                delay(1000)
+                elapsedSeconds = ((System.currentTimeMillis() - workoutStartTime) / 1000).toInt()
+            }
+        } else {
+            elapsedSeconds = 0
+        }
+    }
+
+    // Rest timer
+    LaunchedEffect(isRestTimerRunning) {
+        if (isRestTimerRunning && restTimerSeconds > 0) {
+            while (restTimerSeconds > 0 && isRestTimerRunning) {
+                delay(1000)
+                restTimerSeconds--
+            }
+            isRestTimerRunning = false
+        }
+    }
+
+    fun formatTime(seconds: Int): String {
+        val m = seconds / 60; val s = seconds % 60
+        return String.format("%02d:%02d", m, s)
+    }
+
+    // Preload exercise media with Coil
+    fun preloadExerciseMedia(exercises: List<RoutineExercise>) {
+        scope.launch {
+            exercises.forEach { ex ->
+                ex.mediaUrl?.let { url ->
+                    val req = ImageRequest.Builder(context).data(url)
+                        .memoryCacheKey(url).diskCacheKey(url).build()
+                    imageLoader.enqueue(req)
+                }
+            }
+        }
+    }
 
     fun loadData() {
         scope.launch {
             loading = true
-            val clientList = ServerRepository.getClients()
-            clients = clientList
-            if (selectedClient == null && clientList.isNotEmpty()) {
-                selectedClient = clientList.first()
-            }
-
-            // Load exercise map for names/icons
-            val exList = ServerRepository.getExercises()
-            exercisesMap = exList.associateBy { it.id }
-
-            selectedClient?.let { cli ->
-                weeklyRoutine = ServerRepository.getWeeklyRoutine(cli.id)
-                weightLogs = ServerRepository.getWeightLogs(cli.id)
+            try {
+                // If logged in, use current-week endpoint, else fall back to clients list
+                if (ServerRepository.isLoggedIn()) {
+                    val routine = ServerRepository.getCurrentWeekRoutine()
+                    weeklyRoutine = routine
+                    // Preload all media for the week
+                    routine?.schedule?.values?.forEach { day ->
+                        preloadExerciseMedia(day.exercises)
+                    }
+                    // Also load exercises map for fallback names
+                    val exList = ServerRepository.getExercises()
+                    exercisesMap = exList.associateBy { it.id }
+                } else {
+                    // Legacy: load from clients list
+                    val clientList = ServerRepository.getClients()
+                    clients = clientList
+                    if (selectedClient == null && clientList.isNotEmpty()) selectedClient = clientList.first()
+                    val exList = ServerRepository.getExercises()
+                    exercisesMap = exList.associateBy { it.id }
+                    selectedClient?.let { cli ->
+                        val routine = ServerRepository.getWeeklyRoutine(cli.id)
+                        weeklyRoutine = routine
+                        routine?.schedule?.values?.forEach { day -> preloadExerciseMedia(day.exercises) }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ClientDashboard", "Load error: ${e.message}")
             }
             loading = false
         }
     }
 
-    LaunchedEffect(selectedClient) {
-        loadData()
-    }
+    LaunchedEffect(Unit) { loadData() }
 
+    // ─── MAIN LAYOUT ──────────────────────────────────────────────────────────
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
     ) {
-        // Top Header Client Switcher
+        // ─── HEADER ───────────────────────────────────────────────────────────
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(text = "Mi Entrenamiento", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
-                Text(text = "Registra tus cargas y supera tus récords", fontSize = 13.sp, color = TextSecondary)
+                Text(
+                    text = if (activeWorkoutMode) "🏋️ Entrenando" else "Mi Entrenamiento",
+                    fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary
+                )
+                Text(
+                    text = if (activeWorkoutMode) "Tiempo: ${formatTime(elapsedSeconds)}" else "Registra tus cargas y supera tus récords",
+                    fontSize = 13.sp, color = if (activeWorkoutMode) AppleEmerald else TextSecondary
+                )
             }
+            // Workout start/stop button
+            GlassButton(
+                text = if (activeWorkoutMode) "Finalizar" else "Iniciar",
+                icon = if (activeWorkoutMode) Icons.Default.Stop else Icons.Default.PlayArrow,
+                color = if (activeWorkoutMode) AppleRed else AppleEmerald,
+                onClick = { activeWorkoutMode = !activeWorkoutMode }
+            )
+        }
 
-            // Client selector dropdown / avatar
-            selectedClient?.let { cli ->
+        // ─── REST TIMER ───────────────────────────────────────────────────────
+        AnimatedVisibility(visible = isRestTimerRunning || restTimerSeconds > 0) {
+            GlassCard(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                backgroundColor = if (restTimerSeconds > 10) AppleTeal.copy(alpha = 0.12f) else AppleOrange.copy(alpha = 0.12f),
+                borderColor = if (restTimerSeconds > 10) AppleTeal.copy(alpha = 0.3f) else AppleOrange.copy(alpha = 0.3f)
+            ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(GlassSurfaceWhite)
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (cli.avatar.isNotBlank()) {
-                        AsyncImage(
-                            model = cli.avatar,
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
                             contentDescription = null,
-                            modifier = Modifier.size(32.dp).clip(CircleShape)
+                            tint = if (restTimerSeconds > 10) AppleTeal else AppleOrange,
+                            modifier = Modifier.size(20.dp)
                         )
-                    } else {
-                        Box(
-                            modifier = Modifier.size(32.dp).clip(CircleShape).background(AppleBlue),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(imageVector = Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Descanso: ${formatTime(restTimerSeconds)}",
+                            fontWeight = FontWeight.Bold,
+                            color = if (restTimerSeconds > 10) AppleTeal else AppleOrange
+                        )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = cli.name.split(" ").first(), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    IconButton(onClick = { restTimerSeconds = 0; isRestTimerRunning = false }) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancelar", tint = TextSecondary)
+                    }
                 }
             }
         }
 
-        // Days Bar
+        // ─── DAYS BAR ─────────────────────────────────────────────────────────
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
             items(daysOfWeek) { day ->
                 GlassChip(
-                    text = day,
+                    text = day.take(3),
                     isSelected = selectedDay == day,
                     onClick = { selectedDay = day }
                 )
@@ -172,157 +259,129 @@ fun ClientDashboardScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text(text = "RUTINA DE $selectedDay", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppleBlue)
+                                Text(
+                                    text = "RUTINA DE ${selectedDay.uppercase()}",
+                                    fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppleBlue
+                                )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = daySchedule?.focus ?: "Rutina General",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = TextPrimary
+                                    fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary
                                 )
                             }
                             GlassBadge(
-                                text = "${routineExercises.size} Ejercicios",
+                                text = "${routineExercises.size} ejercicios",
                                 color = AppleTeal
                             )
                         }
                     }
                 }
 
-                // Exercise List for Today
                 if (routineExercises.isEmpty()) {
                     item {
-                        GlassCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            backgroundColor = GlassSurfaceWhite
-                        ) {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
                             Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 24.dp),
+                                modifier = Modifier.fillMaxWidth().padding(24.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(imageVector = Icons.Default.DirectionsRun, contentDescription = null, tint = AppleEmerald, modifier = Modifier.size(40.dp))
+                                Icon(
+                                    imageVector = Icons.Default.EventAvailable,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(40.dp)
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Día de Descanso o Sin Asignar", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                Text("Aprovecha para recuperar músculos o hacer cardio ligero.", fontSize = 12.sp, color = TextSecondary)
+                                Text("Día de descanso 🌟", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text("Recupera y prepárate para el siguiente entrenamiento.", fontSize = 13.sp, color = TextSecondary)
                             }
                         }
                     }
                 } else {
-                    items(routineExercises) { itemEx ->
-                        val fullEx = exercisesMap[itemEx.exerciseId]
-                        val exerciseName = fullEx?.name ?: "Ejercicio #${itemEx.exerciseId}"
-                        val targetMuscle = fullEx?.targetMuscle ?: "Músculo"
-
-                        val exerciseLogs = weightLogs.filter { it.exerciseId == itemEx.exerciseId }
+                    items(routineExercises) { routineEx ->
+                        val exercise = exercisesMap[routineEx.exerciseId]
+                        val exName = routineEx.name.ifBlank { exercise?.name ?: routineEx.exerciseId }
+                        val mediaUrl = routineEx.mediaUrl ?: exercise?.mediaUrl
 
                         GlassCard(
                             modifier = Modifier.fillMaxWidth(),
-                            backgroundColor = GlassSurfaceWhite
+                            backgroundColor = GlassSurfaceWhite,
+                            borderColor = GlassBorderWhite
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(AppleBlue.copy(alpha = 0.12f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(imageVector = Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue)
+                                // Exercise media thumbnail
+                                if (mediaUrl != null) {
+                                    coil.compose.AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(mediaUrl)
+                                            .crossfade(true)
+                                            .build(),
+                                        imageLoader = imageLoader,
+                                        contentDescription = exName,
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(AppleBlue.copy(alpha = 0.1f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FitnessCenter,
+                                            contentDescription = null,
+                                            tint = AppleBlue,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
                                 }
-
-                                Spacer(modifier = Modifier.width(12.dp))
 
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = exerciseName, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(text = "$targetMuscle • ${itemEx.sets} series x ${itemEx.reps} reps", fontSize = 12.sp, color = TextSecondary)
-
-                                    if (itemEx.targetWeightKg > 0) {
-                                        Text(text = "Meta Coach: ${itemEx.targetWeightKg} kg", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppleTeal)
+                                    Text(
+                                        text = exName,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "${routineEx.sets} series × ${routineEx.reps} reps · ${routineEx.targetWeightKg}kg objetivo",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary
+                                    )
+                                    if (routineEx.muscleGroup.isNotBlank()) {
+                                        Text(
+                                            text = routineEx.muscleGroup,
+                                            fontSize = 11.sp,
+                                            color = AppleTeal
+                                        )
                                     }
                                 }
 
-                                GlassButton(
-                                    text = "+ Subir Peso",
-                                    onClick = {
-                                        logModalExercise = fullEx ?: Exercise(itemEx.exerciseId, exerciseName, "General", targetMuscle)
-                                    },
-                                    modifier = Modifier.height(38.dp),
-                                    gradientColors = listOf(AppleBlue, AppleIndigo)
-                                )
-                            }
-
-                            // Render logged weight history for this exercise if any
-                            if (exerciseLogs.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Divider(color = GlassBorderOutline.copy(alpha = 0.5f))
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text("Cargas Registradas Recientemente:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextSecondary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    exerciseLogs.take(3).forEach { log ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(GlassSurfaceElevated)
-                                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text("Serie ${log.setNumber}: ${log.weightKg} kg x ${log.repsCompleted} reps", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                            Text(log.date, fontSize = 11.sp, color = TextTertiary)
+                                // Log button (only in active workout mode)
+                                if (activeWorkoutMode) {
+                                    IconButton(
+                                        onClick = {
+                                            logModalExercise = exercise ?: Exercise(
+                                                id = routineEx.exerciseId,
+                                                name = exName,
+                                                defaultSets = routineEx.sets,
+                                                defaultReps = routineEx.reps
+                                            )
                                         }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Registrar serie",
+                                            tint = AppleBlue
+                                        )
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Recent Weight Logs Section
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.History, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Historial Reciente de Peso", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    }
-                }
-
-                if (weightLogs.isEmpty()) {
-                    item {
-                        GlassCard(modifier = Modifier.fillMaxWidth()) {
-                            Text("Aún no has registrado pesos esta semana. ¡Pulsa '+ Subir Peso' en un ejercicio para empezar!", fontSize = 12.sp, color = TextSecondary)
-                        }
-                    }
-                } else {
-                    items(weightLogs.take(5)) { log ->
-                        GlassCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            backgroundColor = GlassSurfaceWhite
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(text = log.exerciseName, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                    Text(text = "Serie ${log.setNumber} • ${log.date}", fontSize = 11.sp, color = TextSecondary)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(AppleBlue.copy(alpha = 0.12f))
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(text = "${log.weightKg} kg  (${log.repsCompleted} reps)", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = AppleBlue)
                                 }
                             }
                         }
@@ -332,125 +391,201 @@ fun ClientDashboardScreen(
         }
     }
 
-    // Weight Logger Modal
-    logModalExercise?.let { ex ->
-        LogWeightModal(
-            exercise = ex,
-            clientId = selectedClient?.id ?: "cli_1",
-            dayName = selectedDay,
+    // ─── SET LOG MODAL ────────────────────────────────────────────────────────
+    logModalExercise?.let { exercise ->
+        SetLogModal(
+            exercise = exercise,
+            context = context,
+            dao = dao,
             onDismiss = { logModalExercise = null },
-            onLogged = {
+            onSaved = { weightKg, reps, rpe, setNumber ->
                 logModalExercise = null
-                loadData()
+                // Start rest timer (90 seconds default)
+                restTimerSeconds = 90
+                isRestTimerRunning = true
+                // Trigger background sync
+                SyncWorkoutWorker.scheduleSync(context)
             }
         )
     }
 }
 
 @Composable
-fun LogWeightModal(
+fun SetLogModal(
     exercise: Exercise,
-    clientId: String,
-    dayName: String,
+    context: Context,
+    dao: com.tecti.gymaura.data.local.SetLogDao,
     onDismiss: () -> Unit,
-    onLogged: () -> Unit
+    onSaved: (Double, Int, Double, Int) -> Unit
 ) {
-    var setNumber by remember { mutableStateOf("1") }
-    var weightInput by remember { mutableStateOf("") }
-    var repsInput by remember { mutableStateOf("${exercise.defaultReps}") }
-    var notesInput by remember { mutableStateOf("") }
-    var saving by remember { mutableStateOf(false) }
-
     val scope = rememberCoroutineScope()
+    var weightKg by remember { mutableStateOf("") }
+    var reps by remember { mutableStateOf("") }
+    var rpe by remember { mutableStateOf("7") }
+    var setNumber by remember { mutableStateOf(1) }
+    var lastPerformance by remember { mutableStateOf<com.tecti.gymaura.data.model.LastPerformance?>(null) }
+    var localLast by remember { mutableStateOf<com.tecti.gymaura.data.local.SetLogEntity?>(null) }
+    var loading by remember { mutableStateOf(true) }
+
+    // Load last performance from local DB first, then try server
+    LaunchedEffect(exercise.id) {
+        loading = true
+        // Try local Room first (instant)
+        val local = dao.getLastSetForExercise(exercise.id)
+        localLast = local
+        local?.let {
+            weightKg = it.weightKg.toString()
+            reps = it.reps.toString()
+            rpe = it.rpe.toString()
+            setNumber = (it.setNumber + 1).coerceAtMost(6)
+        }
+        // Try server for most up-to-date
+        if (ServerRepository.isLoggedIn()) {
+            val serverLast = ServerRepository.getLastPerformance(exercise.id)
+            serverLast?.let {
+                lastPerformance = it
+                if (local == null) {
+                    weightKg = it.weightKg.toString()
+                    reps = it.reps.toString()
+                }
+            }
+        }
+        loading = false
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
             backgroundColor = GlassSurfaceWhite,
-            borderColor = GlassBorderWhite
+            borderColor = AppleBlue.copy(alpha = 0.3f)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(44.dp).clip(CircleShape).background(AppleBlue.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
+            Column {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(imageVector = Icons.Default.Upload, contentDescription = null, tint = AppleBlue)
+                    Column {
+                        Text(text = exercise.name, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                        Text(text = exercise.targetMuscle.ifBlank { "Serie #$setNumber" }, fontSize = 13.sp, color = TextSecondary)
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary)
+                    }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(text = "Subir Peso Cargado", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    Text(text = exercise.name, fontSize = 13.sp, color = AppleBlue, fontWeight = FontWeight.SemiBold)
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Last performance chip
+                (lastPerformance ?: localLast?.let {
+                    com.tecti.gymaura.data.model.LastPerformance(it.weightKg, it.reps, it.rpe, "")
+                })?.let { last ->
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(AppleTeal.copy(alpha = 0.1f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = null, tint = AppleTeal, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Última vez: ${last.weightKg}kg × ${last.reps} reps · RPE ${last.rpe ?: "-"}",
+                            fontSize = 12.sp, color = AppleTeal, fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                // Set number selector
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Serie:", fontSize = 14.sp, color = TextSecondary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    (1..6).forEach { n ->
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (setNumber == n) AppleBlue else GlassSurfaceWhite)
+                                .border(1.dp, if (setNumber == n) AppleBlue else GlassBorderWhite, CircleShape)
+                                .clickable { setNumber = n },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("$n", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (setNumber == n) Color.White else TextPrimary)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = setNumber,
-                    onValueChange = { setNumber = it },
-                    label = { Text("Serie #") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Weight & Reps inputs
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = weightKg,
+                        onValueChange = { weightKg = it },
+                        label = { Text("Peso (kg)") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
+                    )
+                    OutlinedTextField(
+                        value = reps,
+                        onValueChange = { reps = it },
+                        label = { Text("Reps") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // RPE Slider
+                Text("Esfuerzo percibido (RPE): $rpe", fontSize = 13.sp, color = TextSecondary)
+                Slider(
+                    value = rpe.toFloatOrNull() ?: 7f,
+                    onValueChange = { rpe = String.format("%.1f", it) },
+                    valueRange = 1f..10f,
+                    steps = 17,
+                    colors = SliderDefaults.colors(thumbColor = AppleBlue, activeTrackColor = AppleBlue)
                 )
-                OutlinedTextField(
-                    value = weightInput,
-                    onValueChange = { weightInput = it },
-                    label = { Text("Peso (kg)") },
-                    placeholder = { Text("75.5") },
-                    modifier = Modifier.weight(1.5f),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = repsInput,
-                    onValueChange = { repsInput = it },
-                    label = { Text("Reps") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
-                value = notesInput,
-                onValueChange = { notesInput = it },
-                label = { Text("Notas (Opcional)") },
-                placeholder = { Text("Sintió bien, sin molestia...") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Cancelar") }
-                Spacer(modifier = Modifier.width(8.dp))
-                GlassButton(
-                    text = if (saving) "Guardando..." else "Guardar Carga",
-                    enabled = weightInput.isNotBlank() && !saving,
+                // Save button
+                Button(
                     onClick = {
                         scope.launch {
-                            saving = true
-                            val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                            ServerRepository.logWeight(
-                                WeightLog(
-                                    clientId = clientId,
-                                    exerciseId = exercise.id,
-                                    exerciseName = exercise.name,
-                                    date = todayDate,
-                                    dayName = dayName,
-                                    setNumber = setNumber.toIntOrNull() ?: 1,
-                                    weightKg = weightInput.toDoubleOrNull() ?: 0.0,
-                                    repsCompleted = repsInput.toIntOrNull() ?: exercise.defaultReps,
-                                    notes = notesInput
-                                )
+                            val w = weightKg.toDoubleOrNull() ?: 0.0
+                            val r = reps.toIntOrNull() ?: 0
+                            val rpeVal = rpe.toDoubleOrNull() ?: 7.0
+                            val entity = SetLogEntity(
+                                exerciseId = exercise.id,
+                                exerciseName = exercise.name,
+                                weightKg = w,
+                                reps = r,
+                                rpe = rpeVal,
+                                setNumber = setNumber,
+                                isSynced = false
                             )
-                            saving = false
-                            onLogged()
+                            dao.insertSetLog(entity)
+                            onSaved(w, r, rpeVal, setNumber)
                         }
-                    }
-                )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppleBlue)
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Guardar Serie", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
             }
         }
     }

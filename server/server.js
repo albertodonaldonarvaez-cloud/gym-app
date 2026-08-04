@@ -1,386 +1,373 @@
+'use strict';
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const { PrismaClient } = require('@prisma/client');
 
 const app = express();
+const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'gymaura-super-secret-jwt-key-2025';
+const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
 
+// Ensure uploads directory exists
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// Multer storage config
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => {
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, unique + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage });
+
+// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
-// Archivo de almacenamiento local JSON
-const DATA_FILE = path.join(__dirname, 'gym_db.json');
+// Static media with long cache
+app.use('/uploads/exercises', express.static(UPLOADS_DIR, {
+  maxAge: '30d',
+  etag: true,
+  lastModified: true
+}));
 
-// Datos iniciales semillas
-const INITIAL_DATA = {
-  coach: {
-    id: "coach_1",
-    name: "Coach Roberto 'Aura' Silva",
-    email: "coach@gymaura.com",
-    gymName: "Aura Performance Gym",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80"
-  },
-  clients: [
-    {
-      id: "cli_1",
-      name: "Carlos Mendoza",
-      email: "carlos@gmail.com",
-      phone: "+52 55 1234 5678",
-      goal: "Hipertrofia y Fuerza",
-      weightKg: 78.5,
-      heightCm: 178,
-      avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=300&q=80",
-      activeRoutineId: "rout_carlos_1"
-    },
-    {
-      id: "cli_2",
-      name: "Sofía Ramírez",
-      email: "sofia@gmail.com",
-      phone: "+52 55 9876 5432",
-      goal: "Tonificación y Resistencia",
-      weightKg: 62.0,
-      heightCm: 165,
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80",
-      activeRoutineId: "rout_sofia_1"
-    },
-    {
-      id: "cli_3",
-      name: "Mateo Fernández",
-      email: "mateo@gmail.com",
-      phone: "+52 55 4567 8901",
-      goal: "Pérdida de Grasa",
-      weightKg: 85.0,
-      heightCm: 182,
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80",
-      activeRoutineId: "rout_mateo_1"
+// ─── AUTH MIDDLEWARE ───────────────────────────────────────────────────────────
+function authMiddleware(req, res, next) {
+  const header = req.headers['authorization'];
+  if (!header) return res.status(401).json({ error: 'No token provided' });
+  const token = header.replace('Bearer ', '');
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+function coachOnly(req, res, next) {
+  if (req.user.role !== 'COACH') return res.status(403).json({ error: 'Coach only' });
+  next();
+}
+
+// ─── HEALTH ────────────────────────────────────────────────────────────────────
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'online', app: 'GymAura Server v2', timestamp: new Date().toISOString() });
+});
+
+// ─── AUTH ──────────────────────────────────────────────────────────────────────
+app.post('/api/v1/auth/register', async (req, res) => {
+  try {
+    const { email, password, name, role = 'CLIENT', coachId } = req.body;
+    if (!email || !password || !name) return res.status(400).json({ error: 'email, password, name required' });
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(409).json({ error: 'Email already in use' });
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: { email, passwordHash, name, role, coachId: coachId || null }
+    });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/v1/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, coachId: user.coachId } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── LEGACY ENDPOINTS (backward compat) ────────────────────────────────────────
+app.get('/api/coach', authMiddleware, async (req, res) => {
+  try {
+    const coaches = await prisma.user.findMany({ where: { role: 'COACH' }, select: { id: true, email: true, name: true, avatar: true } });
+    res.json(coaches[0] || {});
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/clients', authMiddleware, async (req, res) => {
+  try {
+    const clients = await prisma.user.findMany({
+      where: { role: 'CLIENT' },
+      select: { id: true, email: true, name: true, avatar: true, goal: true, weightKg: true, heightCm: true }
+    });
+    // Map to legacy format
+    res.json(clients.map(c => ({ id: c.id, name: c.name, email: c.email, avatar: c.avatar, goal: c.goal, weightKg: c.weightKg, heightCm: c.heightCm, activeRoutineId: null })));
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/clients', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const { name, email, goal, weightKg, heightCm } = req.body;
+    const tempPw = await bcrypt.hash('GymAura2025!', 12);
+    const user = await prisma.user.create({
+      data: { name, email, passwordHash: tempPw, role: 'CLIENT', goal: goal || 'Acondicionamiento Físico', weightKg: parseFloat(weightKg) || 70, heightCm: parseInt(heightCm) || 170, coachId: req.user.id }
+    });
+    res.status(201).json({ id: user.id, name: user.name, email: user.email, goal: user.goal, weightKg: user.weightKg, heightCm: user.heightCm });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── EXERCISES ─────────────────────────────────────────────────────────────────
+app.get('/api/exercises', async (req, res) => {
+  try {
+    const { category, search } = req.query;
+    const where = {};
+    if (category && category !== 'Todos') where.category = category;
+    if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { muscleGroup: { contains: search, mode: 'insensitive' } }];
+    const exercises = await prisma.exercise.findMany({ where, orderBy: { name: 'asc' } });
+    res.json(exercises.map(e => ({
+      id: e.id, name: e.name, category: e.category, targetMuscle: e.muscleGroup,
+      equipment: e.equipment, instructions: e.instructions, defaultSets: e.defaultSets,
+      defaultReps: e.defaultReps, mediaUrl: e.mediaUrl, icon: 'dumbbell'
+    })));
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/exercises', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const ex = await prisma.exercise.create({
+      data: {
+        name: req.body.name,
+        muscleGroup: req.body.targetMuscle || req.body.muscleGroup || 'General',
+        category: req.body.category || 'General',
+        equipment: req.body.equipment || 'Libre',
+        instructions: req.body.instructions || '',
+        defaultSets: parseInt(req.body.defaultSets) || 4,
+        defaultReps: parseInt(req.body.defaultReps) || 12
+      }
+    });
+    res.status(201).json({ ...ex, targetMuscle: ex.muscleGroup, icon: 'dumbbell' });
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Upload media for exercise
+app.post('/api/exercises/:id/media', authMiddleware, coachOnly, upload.single('media'), async (req, res) => {
+  try {
+    const url = `/uploads/exercises/${req.file.filename}`;
+    const ex = await prisma.exercise.update({
+      where: { id: req.params.id },
+      data: { mediaFilename: req.file.filename, mediaUrl: url }
+    });
+    res.json({ mediaUrl: ex.mediaUrl });
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── ROUTINES (LEGACY + V1) ─────────────────────────────────────────────────────
+app.get('/api/routines/weekly/:clientId', authMiddleware, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const routine = await prisma.routinePlan.findFirst({ where: { athleteId: clientId }, orderBy: { updatedAt: 'desc' } });
+    if (!routine) {
+      const emptyDays = {};
+      ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d => {
+        emptyDays[d] = { dayName: d, focus: 'Sin asignar', exercises: [] };
+      });
+      return res.json({ id: null, clientId, title: 'Rutina Semanal', description: 'Sin asignar', schedule: emptyDays });
     }
-  ],
-  exercises: [
-    // PECHO
-    { id: "ex_1", name: "Press de Banca con Barra", category: "Pecho", targetMuscle: "Pectoral Mayor", equipment: "Barra y Banco Plano", instructions: "Túmbate en el banco, agarre medio, baja la barra al esternón con codos a 45° y empuja explosivo.", defaultSets: 4, defaultReps: 10, icon: "dumbbell" },
-    { id: "ex_2", name: "Press Inclinado con Mancuernas", category: "Pecho", targetMuscle: "Pectoral Superior", equipment: "Banco Inclinado (30-45°) + Mancuernas", instructions: "Con el banco a 30 grados, baja las mancuernas al nivel del pecho superior y extiende totalmente los brazos.", defaultSets: 4, defaultReps: 12, icon: "dumbbell" },
-    { id: "ex_3", name: "Aperturas con Mancuernas", category: "Pecho", targetMuscle: "Pectoral Mayor / Estiramiento", equipment: "Mancuernas", instructions: "Abre los brazos semiflexionados sintiendo el estiramiento profundo en el pecho antes de cerrar arriba.", defaultSets: 3, defaultReps: 15, icon: "dumbbell" },
-    { id: "ex_4", name: "Fondos en Paralelas (Dips)", category: "Pecho", targetMuscle: "Pectoral Inferior y Tríceps", equipment: "Barras Paralelas", instructions: "Inclina el torso ligeramente hacia adelante al bajar para enfocar la carga en el pecho inferior.", defaultSets: 3, defaultReps: 10, icon: "bodyweight" },
-    { id: "ex_5", name: "Crossover en Polea Alta", category: "Pecho", targetMuscle: "Pectoral Inferior e Interior", equipment: "Polea Doble", instructions: "Cruza los cables al frente abajo manteniendo ligera flexión de codos.", defaultSets: 4, defaultReps: 15, icon: "cable" },
+    res.json({ id: routine.id, clientId: routine.athleteId, title: routine.title, description: routine.description, schedule: routine.schedule });
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
 
-    // ESPALDA
-    { id: "ex_6", name: "Jalón al Pecho en Polea Alta", category: "Espalda", targetMuscle: "Dorsal Ancho", equipment: "Máquina de Polea", instructions: "Tracciona el agarre hacia la parte superior del pecho sacando el tórax y apretando omóplatos.", defaultSets: 4, defaultReps: 12, icon: "cable" },
-    { id: "ex_7", name: "Remo con Barra (Pendlay / Convencional)", category: "Espalda", targetMuscle: "Dorsal, Trapecio y Remo Central", equipment: "Barra Olímpica", instructions: "Torso inclinado a 45° o paralelo, lleva la barra hacia el ombligo manteniendo la espalda recta.", defaultSets: 4, defaultReps: 10, icon: "dumbbell" },
-    { id: "ex_8", name: "Dominadas (Pull-ups)", category: "Espalda", targetMuscle: "Dorsal Ancho", equipment: "Barra de Dominadas", instructions: "Agarre prono más ancho que los hombros. Eleva tu cuerpo hasta superar la barra con la barbilla.", defaultSets: 4, defaultReps: 8, icon: "bodyweight" },
-    { id: "ex_9", name: "Remo Gironda en Polea Baja", category: "Espalda", targetMuscle: "Espalda Media y Romboides", equipment: "Polea Baja con Agarre V", instructions: "Mantén el torso erguido, tira hacia el abdomen y retrae profundamente las escápulas.", defaultSets: 4, defaultReps: 12, icon: "cable" },
-    { id: "ex_10", name: "Peso Muerto Convencional", category: "Espalda", targetMuscle: "Cadena Posterior Total / Lumbar", equipment: "Barra y Discos", instructions: "Pies a lo ancho de caderas, espalda neutra, empuja el suelo con las piernas y extiende la cadera arriba.", defaultSets: 4, defaultReps: 6, icon: "barbell" },
+app.post('/api/routines/weekly', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const { clientId, title, description, schedule } = req.body;
+    const existing = await prisma.routinePlan.findFirst({ where: { athleteId: clientId } });
+    let routine;
+    if (existing) {
+      routine = await prisma.routinePlan.update({ where: { id: existing.id }, data: { title, description, schedule } });
+    } else {
+      routine = await prisma.routinePlan.create({ data: { coachId: req.user.id, athleteId: clientId, title: title || 'Rutina Semanal', description: description || 'Plan personalizado', schedule } });
+    }
+    res.json({ id: routine.id, clientId: routine.athleteId, title: routine.title, description: routine.description, schedule: routine.schedule });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
 
-    // PIERNA
-    { id: "ex_11", name: "Sentadilla Trasera con Barra", category: "Pierna", targetMuscle: "Cuádriceps y Glúteo", equipment: "Rack y Barra Olímpica", instructions: "Apoya la barra en trapecios, desciende rompiendo el paralelo con rodillas alineadas con los pies.", defaultSets: 4, defaultReps: 10, icon: "barbell" },
-    { id: "ex_12", name: "Prensa de Piernas 45°", category: "Pierna", targetMuscle: "Cuádriceps e Isquios", equipment: "Máquina de Prensa", instructions: "Coloca pies al ancho de hombros, baja la plataforma a 90° sin despegar la zona lumbar.", defaultSets: 4, defaultReps: 12, icon: "machine" },
-    { id: "ex_13", name: "Zancadas / Lunges con Mancuernas", category: "Pierna", targetMuscle: "Glúteos y Cuádriceps", equipment: "Mancuernas", instructions: "Da un paso amplio desciendo la rodilla trasera casi al suelo. Mantén el torso vertical.", defaultSets: 3, defaultReps: 12, icon: "dumbbell" },
-    { id: "ex_14", name: "Extensión de Cuádriceps", category: "Pierna", targetMuscle: "Cuádriceps (Recto Femoral)", equipment: "Máquina Extensión", instructions: "Extiende las piernas completamente con control y haz una pausa de 1 segundo arriba.", defaultSets: 4, defaultReps: 15, icon: "machine" },
-    { id: "ex_15", name: "Curl Femoral Tumbado", category: "Pierna", targetMuscle: "Isquiotibiales", equipment: "Máquina Curl Femoral", instructions: "Flexiona las piernas llevando los talones hacia los glúteos manteniendo cadera fija.", defaultSets: 4, defaultReps: 12, icon: "machine" },
-    { id: "ex_16", name: "Peso Muerto Rumano", category: "Pierna", targetMuscle: "Isquiotibiales y Glúteo", equipment: "Barra o Mancuernas", instructions: "Flexiona ligeramente rodillas y empuja la cadera hacia atrás sintiendo el estiramiento en femorales.", defaultSets: 4, defaultReps: 10, icon: "barbell" },
-    { id: "ex_17", name: "Elevación de Talones de Pie", category: "Pierna", targetMuscle: "Gemelos (Gastrocnemio)", equipment: "Máquina o Escalón", instructions: "Sube al máximo sobre la punta de los pies, aguanta 1 segundo y baja estirando el talón.", defaultSets: 4, defaultReps: 20, icon: "machine" },
-
-    // HOMBRO
-    { id: "ex_18", name: "Press Militar con Barra", category: "Hombro", targetMuscle: "Deltoides Anterior", equipment: "Barra Olímpica", instructions: "Desde la clavícula, empuja la barra sobre la cabeza bloqueando los brazos en vertical.", defaultSets: 4, defaultReps: 8, icon: "barbell" },
-    { id: "ex_19", name: "Press Arnold con Mancuernas", category: "Hombro", targetMuscle: "Deltoides Completo", equipment: "Mancuernas y Banco", instructions: "Inicia con palmas mirando hacia ti y rota 180 grados a medida que subes las mancuernas.", defaultSets: 4, defaultReps: 12, icon: "dumbbell" },
-    { id: "ex_20", name: "Elevaciones Laterales con Mancuernas", category: "Hombro", targetMuscle: "Deltoides Lateral", equipment: "Mancuernas", instructions: "Eleva las mancuernas hacia los lados hasta la altura de los hombros guiando con los codos.", defaultSets: 4, defaultReps: 15, icon: "dumbbell" },
-    { id: "ex_21", name: "Pájaros para Deltoides Posterior", category: "Hombro", targetMuscle: "Deltoides Posterior", equipment: "Mancuernas o Polea", instructions: "Inclina el torso 90° hacia adelante y abre los brazos lateralmente apretando la parte trasera del hombro.", defaultSets: 4, defaultReps: 15, icon: "dumbbell" },
-
-    // BÍCEPS
-    { id: "ex_22", name: "Curl de Bíceps con Barra Z", category: "Bíceps", targetMuscle: "Bíceps Braquial", equipment: "Barra Z y Discos", instructions: "Mantén los codos pegados al costado y flexiona la barra Z con movimiento limpio.", defaultSets: 4, defaultReps: 12, icon: "barbell" },
-    { id: "ex_23", name: "Curl Martillo con Mancuernas", category: "Bíceps", targetMuscle: "Braquiorradial y Bíceps", equipment: "Mancuernas", instructions: "Agarre neutro (palmas enfrentadas). Eleva las mancuernas manteniendo codos fijos.", defaultSets: 4, defaultReps: 12, icon: "dumbbell" },
-    { id: "ex_24", name: "Curl Predicador en Banco Scott", category: "Bíceps", targetMuscle: "Bíceps (Cabeza Corta)", equipment: "Banco Scott y Barra Z", instructions: "Apoya los brazos firmes en el acolchado y sube la barra concentrando la contracción arriba.", defaultSets: 3, defaultReps: 10, icon: "barbell" },
-
-    // TRÍCEPS
-    { id: "ex_25", name: "Extensión de Tríceps en Polea con Cuerda", category: "Tríceps", targetMuscle: "Tríceps (Cabeza Lateral)", equipment: "Polea Alta con Cuerda", instructions: "Empuja la cuerda hacia abajo y abre las manos al final del recorrido contratando los tríceps.", defaultSets: 4, defaultReps: 15, icon: "cable" },
-    { id: "ex_26", name: "Press Francés en Banco Plano", category: "Tríceps", targetMuscle: "Tríceps (Cabeza Larga)", equipment: "Barra Z y Banco Plano", instructions: "Baja la barra lentamente hacia la frente manteniendo los codos cerrados apuntando al techo.", defaultSets: 4, defaultReps: 10, icon: "barbell" },
-    { id: "ex_27", name: "Fondos entre Bancos / Dips", category: "Tríceps", targetMuscle: "Tríceps Braquial", equipment: "Bancos Paralelos", instructions: "Coloca manos en el borde del banco y baja el cuerpo doblando codos a 90 grados.", defaultSets: 3, defaultReps: 15, icon: "bodyweight" },
-
-    // ABDOMEN
-    { id: "ex_28", name: "Elevación de Piernas Colgado", category: "Abdomen", targetMuscle: "Abdomen Inferior", equipment: "Barra de Dominadas", instructions: "Colgado de la barra, eleva las rodillas o piernas rectas hacia el pecho usando la fuerza abdominal.", defaultSets: 4, defaultReps: 15, icon: "bodyweight" },
-    { id: "ex_29", name: "Crunch Abdominal en Banco Inclinado", category: "Abdomen", targetMuscle: "Recto Abdominal", equipment: "Banco Inclinado", instructions: "Flexiona la columna apretando el abdomen sin jalar del cuello con los brazos.", defaultSets: 4, defaultReps: 20, icon: "bodyweight" },
-    { id: "ex_30", name: "Plancha Abdominal Iso", category: "Abdomen", targetMuscle: "Core / Transverso", equipment: "Tapete", instructions: "Mantén el cuerpo recto como una tabla apoyado en antebrazos y puntas de pies durante 45-60s.", defaultSets: 4, defaultReps: 60, icon: "timer" }
-  ],
-  routines: [
-    {
-      id: "rout_carlos_1",
-      clientId: "cli_1",
-      title: "Rutina Hipertrofia & Fuerza 4 Días",
-      description: "Programa de volumen muscular diseñado por Coach Roberto",
-      schedule: {
-        "Lunes": {
-          dayName: "Lunes",
-          focus: "Pecho y Bíceps",
-          exercises: [
-            { exerciseId: "ex_1", sets: 4, reps: 10, targetWeightKg: 70 },
-            { exerciseId: "ex_2", sets: 4, reps: 12, targetWeightKg: 24 },
-            { exerciseId: "ex_5", sets: 3, reps: 15, targetWeightKg: 15 },
-            { exerciseId: "ex_22", sets: 4, reps: 12, targetWeightKg: 30 },
-            { exerciseId: "ex_23", sets: 3, reps: 12, targetWeightKg: 14 }
-          ]
-        },
-        "Martes": {
-          dayName: "Martes",
-          focus: "Pierna Completa",
-          exercises: [
-            { exerciseId: "ex_11", sets: 4, reps: 10, targetWeightKg: 90 },
-            { exerciseId: "ex_12", sets: 4, reps: 12, targetWeightKg: 180 },
-            { exerciseId: "ex_15", sets: 4, reps: 12, targetWeightKg: 45 },
-            { exerciseId: "ex_17", sets: 4, reps: 20, targetWeightKg: 60 }
-          ]
-        },
-        "Miércoles": {
-          dayName: "Miércoles",
-          focus: "Descanso Activo / Cardio",
-          exercises: [
-            { exerciseId: "ex_30", sets: 4, reps: 60, targetWeightKg: 0 }
-          ]
-        },
-        "Jueves": {
-          dayName: "Jueves",
-          focus: "Espalda y Tríceps",
-          exercises: [
-            { exerciseId: "ex_6", sets: 4, reps: 12, targetWeightKg: 60 },
-            { exerciseId: "ex_7", sets: 4, reps: 10, targetWeightKg: 65 },
-            { exerciseId: "ex_9", sets: 4, reps: 12, targetWeightKg: 55 },
-            { exerciseId: "ex_25", sets: 4, reps: 15, targetWeightKg: 25 },
-            { exerciseId: "ex_26", sets: 3, reps: 10, targetWeightKg: 28 }
-          ]
-        },
-        "Viernes": {
-          dayName: "Viernes",
-          focus: "Hombro y Abdomen",
-          exercises: [
-            { exerciseId: "ex_18", sets: 4, reps: 8, targetWeightKg: 45 },
-            { exerciseId: "ex_20", sets: 4, reps: 15, targetWeightKg: 12 },
-            { exerciseId: "ex_21", sets: 4, reps: 15, targetWeightKg: 10 },
-            { exerciseId: "ex_28", sets: 4, reps: 15, targetWeightKg: 0 }
-          ]
-        },
-        "Sábado": { dayName: "Sábado", focus: "Descanso", exercises: [] },
-        "Domingo": { dayName: "Domingo", focus: "Descanso", exercises: [] }
+// V1 - Current week routine (authenticated client gets their own)
+app.get('/api/v1/routines/current-week', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    const routine = await prisma.routinePlan.findFirst({ where: { athleteId }, orderBy: { updatedAt: 'desc' } });
+    if (!routine) return res.json({ schedule: {} });
+    // Enrich with exercise media URLs
+    const schedule = routine.schedule;
+    for (const dayKey of Object.keys(schedule)) {
+      const day = schedule[dayKey];
+      if (day.exercises && Array.isArray(day.exercises)) {
+        for (const ex of day.exercises) {
+          if (ex.exerciseId) {
+            const exData = await prisma.exercise.findUnique({ where: { id: ex.exerciseId } });
+            if (exData) {
+              ex.name = exData.name;
+              ex.mediaUrl = exData.mediaUrl || null;
+              ex.muscleGroup = exData.muscleGroup;
+            }
+          }
+        }
       }
     }
-  ],
-  weightLogs: [
-    {
-      id: "log_101",
-      clientId: "cli_1",
-      exerciseId: "ex_1",
-      exerciseName: "Press de Banca con Barra",
-      date: "2026-07-26",
-      dayName: "Lunes",
-      setNumber: 1,
-      weightKg: 65.0,
-      repsCompleted: 10,
-      notes: "Se sintió liviano, aumentar peso"
-    },
-    {
-      id: "log_102",
-      clientId: "cli_1",
-      exerciseId: "ex_1",
-      exerciseName: "Press de Banca con Barra",
-      date: "2026-07-26",
-      dayName: "Lunes",
-      setNumber: 2,
-      weightKg: 70.0,
-      repsCompleted: 10,
-      notes: "Buena técnica"
-    },
-    {
-      id: "log_103",
-      clientId: "cli_1",
-      exerciseId: "ex_1",
-      exerciseName: "Press de Banca con Barra",
-      date: "2026-07-26",
-      dayName: "Lunes",
-      setNumber: 3,
-      weightKg: 72.5,
-      repsCompleted: 8,
-      notes: "Fallo en rep 9"
-    }
-  ]
-};
+    res.json({ id: routine.id, title: routine.title, description: routine.description, schedule });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
 
-// Cargar o inicializar datos
-function loadData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(INITIAL_DATA, null, 2));
-    return INITIAL_DATA;
-  }
+// ─── WORKOUT LOGS (LEGACY) ─────────────────────────────────────────────────────
+app.get('/api/logs/:clientId', authMiddleware, async (req, res) => {
   try {
-    const raw = fs.readFileSync(DATA_FILE);
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error("Error leyendo DB local, usando semillas:", e);
-    return INITIAL_DATA;
-  }
-}
-
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
-
-// Routes API
-
-// Health Check
-app.get('/api/health', (req, res) => {
-  res.json({ status: "online", app: "GymAura Server", timestamp: new Date().toISOString() });
+    const { clientId } = req.params;
+    const { exerciseId } = req.query;
+    const where = { athleteId: clientId };
+    if (exerciseId) where.exerciseId = exerciseId;
+    const logs = await prisma.setLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
+    res.json(logs.map(l => ({
+      id: l.id, clientId: l.athleteId, exerciseId: l.exerciseId,
+      date: l.createdAt.toISOString().split('T')[0], setNumber: l.setNumber,
+      weightKg: l.weightKg, repsCompleted: l.reps, notes: l.notes
+    })));
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// GET Coach Info
-app.get('/api/coach', (req, res) => {
-  const db = loadData();
-  res.json(db.coach);
-});
-
-// GET Exercises (Catalog)
-app.get('/api/exercises', (req, res) => {
-  const db = loadData();
-  const { category, search } = req.query;
-  let result = db.exercises;
-  if (category && category !== 'Todos') {
-    result = result.filter(ex => ex.category.toLowerCase() === category.toLowerCase());
-  }
-  if (search) {
-    const s = search.toLowerCase();
-    result = result.filter(ex => ex.name.toLowerCase().includes(s) || ex.targetMuscle.toLowerCase().includes(s));
-  }
-  res.json(result);
-});
-
-// POST Add New Exercise (Coach)
-app.post('/api/exercises', (req, res) => {
-  const db = loadData();
-  const newEx = {
-    id: "ex_" + Date.now(),
-    name: req.body.name,
-    category: req.body.category || "General",
-    targetMuscle: req.body.targetMuscle || "Musculatura General",
-    equipment: req.body.equipment || "Libre",
-    instructions: req.body.instructions || "",
-    defaultSets: parseInt(req.body.defaultSets) || 4,
-    defaultReps: parseInt(req.body.defaultReps) || 12,
-    icon: req.body.icon || "dumbbell"
-  };
-  db.exercises.push(newEx);
-  saveData(db);
-  res.status(201).json(newEx);
-});
-
-// GET Clients List (Coach View)
-app.get('/api/clients', (req, res) => {
-  const db = loadData();
-  res.json(db.clients);
-});
-
-// POST Create Client (Coach)
-app.post('/api/clients', (req, res) => {
-  const db = loadData();
-  const newClient = {
-    id: "cli_" + Date.now(),
-    name: req.body.name,
-    email: req.body.email,
-    phone: req.body.phone || "",
-    goal: req.body.goal || "Acondicionamiento Físico",
-    weightKg: parseFloat(req.body.weightKg) || 70.0,
-    heightCm: parseInt(req.body.heightCm) || 170,
-    avatar: req.body.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80",
-    activeRoutineId: null
-  };
-  db.clients.push(newClient);
-  saveData(db);
-  res.status(201).json(newClient);
-});
-
-// GET Weekly Routine for a Client
-app.get('/api/routines/weekly/:clientId', (req, res) => {
-  const db = loadData();
-  const { clientId } = req.params;
-  let routine = db.routines.find(r => r.clientId === clientId);
-  
-  if (!routine) {
-    // Si no existe, genera estructura vacía para los 7 días
-    const emptyDays = {};
-    ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].forEach(day => {
-      emptyDays[day] = { dayName: day, focus: "Sin asignar", exercises: [] };
+app.post('/api/logs', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    // Find or create today's workout log
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    let wLog = await prisma.workoutLog.findFirst({ where: { athleteId, date: { gte: today } } });
+    if (!wLog) wLog = await prisma.workoutLog.create({ data: { athleteId } });
+    const setLog = await prisma.setLog.create({
+      data: {
+        clientLogId: req.body.clientLogId || `cli_${Date.now()}_${Math.random()}`,
+        workoutLogId: wLog.id,
+        athleteId,
+        exerciseId: req.body.exerciseId,
+        weightKg: parseFloat(req.body.weightKg) || 0,
+        reps: parseInt(req.body.repsCompleted) || 0,
+        setNumber: parseInt(req.body.setNumber) || 1,
+        notes: req.body.notes || ''
+      }
     });
-    routine = {
-      id: "rout_" + clientId + "_" + Date.now(),
-      clientId: clientId,
-      title: "Rutina Semanal",
-      description: "Asignada por el entrenador",
-      schedule: emptyDays
-    };
-  }
-  res.json(routine);
+    res.status(201).json({ id: setLog.id, clientId: athleteId, exerciseId: setLog.exerciseId, setNumber: setLog.setNumber, weightKg: setLog.weightKg, repsCompleted: setLog.reps, notes: setLog.notes, date: setLog.createdAt.toISOString().split('T')[0] });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-// POST Save/Update Weekly Routine (Coach)
-app.post('/api/routines/weekly', (req, res) => {
-  const db = loadData();
-  const { clientId, title, description, schedule } = req.body;
-  
-  let existingIndex = db.routines.findIndex(r => r.clientId === clientId);
-  const updatedRoutine = {
-    id: existingIndex >= 0 ? db.routines[existingIndex].id : "rout_" + clientId + "_" + Date.now(),
-    clientId: clientId,
-    title: title || "Rutina Semanal",
-    description: description || "Plan personalizado",
-    schedule: schedule
-  };
-
-  if (existingIndex >= 0) {
-    db.routines[existingIndex] = updatedRoutine;
-  } else {
-    db.routines.push(updatedRoutine);
-  }
-
-  // Update client active routine
-  const clientObj = db.clients.find(c => c.id === clientId);
-  if (clientObj) {
-    clientObj.activeRoutineId = updatedRoutine.id;
-  }
-
-  saveData(db);
-  res.json(updatedRoutine);
+// ─── V1 SYNC (OFFLINE-FIRST) ───────────────────────────────────────────────────
+app.post('/api/v1/workouts/sync', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    const { sets } = req.body; // Array of SetLog objects from mobile
+    if (!Array.isArray(sets) || sets.length === 0) return res.json({ synced: 0, failed: 0 });
+    let synced = 0, failed = 0;
+    // Find or create today's workout log
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    let wLog = await prisma.workoutLog.findFirst({ where: { athleteId, date: { gte: today } } });
+    if (!wLog) wLog = await prisma.workoutLog.create({ data: { athleteId } });
+    for (const s of sets) {
+      try {
+        await prisma.setLog.upsert({
+          where: { clientLogId: s.clientLogId },
+          update: { weightKg: s.weightKg, reps: s.reps, rpe: s.rpe, notes: s.notes || '' },
+          create: {
+            clientLogId: s.clientLogId,
+            workoutLogId: wLog.id,
+            athleteId,
+            exerciseId: s.exerciseId,
+            weightKg: s.weightKg || 0,
+            reps: s.reps || 0,
+            rpe: s.rpe || 0,
+            setNumber: s.setNumber || 1,
+            notes: s.notes || ''
+          }
+        });
+        synced++;
+      } catch (err) {
+        console.error('Sync error for set:', s.clientLogId, err.message);
+        failed++;
+      }
+    }
+    res.json({ synced, failed, workoutLogId: wLog.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-// GET Weight Logs for Client
-app.get('/api/logs/:clientId', (req, res) => {
-  const db = loadData();
-  const { clientId } = req.params;
-  const { exerciseId } = req.query;
-
-  let logs = db.weightLogs.filter(l => l.clientId === clientId);
-  if (exerciseId) {
-    logs = logs.filter(l => l.exerciseId === exerciseId);
-  }
-  res.json(logs);
+// ─── V1 HISTORY & RECORDS ──────────────────────────────────────────────────────
+app.get('/api/v1/user/workout-history', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    const logs = await prisma.setLog.findMany({
+      where: { athleteId },
+      orderBy: { createdAt: 'asc' },
+      include: { exercise: { select: { name: true, muscleGroup: true } } }
+    });
+    res.json(logs.map(l => ({
+      id: l.id,
+      clientLogId: l.clientLogId,
+      exerciseId: l.exerciseId,
+      exerciseName: l.exercise?.name || '',
+      workoutLogId: l.workoutLogId,
+      weightKg: l.weightKg,
+      reps: l.reps,
+      rpe: l.rpe,
+      setNumber: l.setNumber,
+      notes: l.notes,
+      createdAt: l.createdAt.toISOString()
+    })));
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// POST Log Weight/Set (Client)
-app.post('/api/logs', (req, res) => {
-  const db = loadData();
-  const newLog = {
-    id: "log_" + Date.now(),
-    clientId: req.body.clientId,
-    exerciseId: req.body.exerciseId,
-    exerciseName: req.body.exerciseName,
-    date: req.body.date || new Date().toISOString().split('T')[0],
-    dayName: req.body.dayName || "Hoy",
-    setNumber: parseInt(req.body.setNumber) || 1,
-    weightKg: parseFloat(req.body.weightKg) || 0,
-    repsCompleted: parseInt(req.body.repsCompleted) || 0,
-    notes: req.body.notes || ""
-  };
+app.get('/api/v1/exercises/:id/last-performance', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    const last = await prisma.setLog.findFirst({
+      where: { athleteId, exerciseId: req.params.id },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (!last) return res.json(null);
+    res.json({ weightKg: last.weightKg, reps: last.reps, rpe: last.rpe, createdAt: last.createdAt.toISOString() });
+  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+});
 
-  db.weightLogs.push(newLog);
-  saveData(db);
-  res.status(201).json(newLog);
+// ─── V1 HUAWEI HEALTH KIT ─────────────────────────────────────────────────────
+app.post('/api/v1/huawei/sync-workout', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    const { caloriesBurned, avgHr, durationSeconds, date } = req.body;
+    const workoutDate = date ? new Date(date) : new Date();
+    let wLog = await prisma.workoutLog.findFirst({
+      where: { athleteId, date: { gte: new Date(workoutDate.toDateString()) } }
+    });
+    if (wLog) {
+      wLog = await prisma.workoutLog.update({
+        where: { id: wLog.id },
+        data: { caloriesBurned: parseFloat(caloriesBurned) || null, avgHr: parseInt(avgHr) || null, durationSeconds: parseInt(durationSeconds) || null, source: 'huawei' }
+      });
+    } else {
+      wLog = await prisma.workoutLog.create({
+        data: { athleteId, caloriesBurned: parseFloat(caloriesBurned) || null, avgHr: parseInt(avgHr) || null, durationSeconds: parseInt(durationSeconds) || null, source: 'huawei', date: workoutDate }
+      });
+    }
+    res.json({ workoutLogId: wLog.id, synced: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 // Start Server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 GymAura Server ejecutándose en http://0.0.0.0:${PORT}`);
+  console.log(`🚀 GymAura Server v2 ejecutándose en http://0.0.0.0:${PORT}`);
 });
