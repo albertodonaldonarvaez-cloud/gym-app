@@ -10,7 +10,7 @@ const navItems = [
   { to: '/',            icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
   { to: '/users',       icon: Users,           label: 'Usuarios',       id: 'nav-users',        roles: ['ADMIN'] },
   { to: '/assignments', icon: UserCheck,        label: 'Asignaciones',   id: 'nav-assignments',  roles: ['ADMIN'] },
-  { to: '/routines',    icon: Calendar,         label: 'Rutinas',        id: 'nav-routines',     roles: ['COACH'] },
+  { to: '/routines',    icon: Calendar,         label: 'Rutinas',        id: 'nav-routines',     roles: ['ADMIN', 'COACH'] },
   { to: '/exercises',   icon: Dumbbell,         label: 'Ejercicios',     id: 'nav-exercises',    roles: ['ADMIN', 'COACH'] },
 ]
 

@@ -441,6 +441,79 @@ app.post('/api/v1/huawei/sync-workout', authMiddleware, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
+// ─── ROUTE ALIASES (web frontend compatibility) ─────────────────────────────
+app.post('/api/auth/login', async (req, res) => {
+  // Forward to v1 endpoint
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, coachId: user.coachId } });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, name, role = 'CLIENT', coachId } = req.body;
+    if (!email || !password || !name) return res.status(400).json({ error: 'email, password, name required' });
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(409).json({ error: 'Email already in use' });
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({ data: { email, passwordHash, name, role, coachId: coachId || null } });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/coach/clients', authMiddleware, async (req, res) => {
+  try {
+    // For ADMIN: return all clients. For COACH: return only their assigned clients.
+    const where = req.user.role === 'ADMIN'
+      ? { role: 'CLIENT' }
+      : { role: 'CLIENT', coachId: req.user.id };
+    const clients = await prisma.user.findMany({
+      where,
+      select: { id: true, email: true, name: true, avatar: true, goal: true, weightKg: true, heightCm: true, coachId: true }
+    });
+    res.json(clients);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/routines/:athleteId', authMiddleware, async (req, res) => {
+  try {
+    const routine = await prisma.routinePlan.findFirst({
+      where: { athleteId: req.params.athleteId },
+      orderBy: { updatedAt: 'desc' }
+    });
+    if (!routine) return res.json({ id: '', title: 'Rutina Semanal', description: '', schedule: {} });
+    res.json(routine);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/routines/:athleteId', authMiddleware, async (req, res) => {
+  try {
+    const { title, description, schedule } = req.body;
+    const athleteId = req.params.athleteId;
+    const existing = await prisma.routinePlan.findFirst({ where: { athleteId } });
+    let routine;
+    if (existing) {
+      routine = await prisma.routinePlan.update({
+        where: { id: existing.id },
+        data: { title, description, schedule, coachId: req.user.id }
+      });
+    } else {
+      routine = await prisma.routinePlan.create({
+        data: { coachId: req.user.id, athleteId, title, description, schedule }
+      });
+    }
+    res.json(routine);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
 // ─── ADMIN ENDPOINTS ────────────────────────────────────────────────────────
 app.get('/api/admin/stats', authMiddleware, adminOnly, async (req, res) => {
   try {
