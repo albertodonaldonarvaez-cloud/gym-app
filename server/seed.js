@@ -19,6 +19,15 @@ async function main() {
   });
   console.log('✅ Coach created:', coach.email);
 
+  // Create admin
+  const adminHash = await bcrypt.hash('GymAura2025!', 12);
+  const admin = await prisma.user.upsert({
+    where: { email: 'admin@gymaura.com' },
+    update: {},
+    create: { email: 'admin@gymaura.com', passwordHash: adminHash, name: 'Administrador', role: 'ADMIN' }
+  });
+  console.log('✅ Admin created:', admin.email);
+
   // Create demo client
   const clientHash = await bcrypt.hash('Client2025!', 12);
   const client = await prisma.user.upsert({
@@ -120,6 +129,7 @@ async function main() {
   console.log('🎉 Seed complete!');
   console.log('  Coach login: coach@gymaura.com / Coach2025!');
   console.log('  Client login: cliente@gymaura.com / Client2025!');
+  console.log('  Admin login: admin@gymaura.com / GymAura2025!');
 }
 
 main().catch(e => { console.error(e); process.exit(1); }).finally(() => prisma.$disconnect());

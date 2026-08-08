@@ -10,6 +10,7 @@ datasource db {
 enum Role {
   COACH
   CLIENT
+  ADMIN
 }
 
 model User {

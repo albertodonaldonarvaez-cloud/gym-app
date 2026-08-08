@@ -2,14 +2,16 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import {
   LayoutDashboard, Calendar, Dumbbell, LogOut, ChevronRight,
-  Bell, User
+  Bell, User, Users, UserCheck
 } from 'lucide-react'
 import clsx from 'clsx'
 
 const navItems = [
-  { to: '/',          icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard'  },
-  { to: '/routines',  icon: Calendar,        label: 'Rutinas',         id: 'nav-routines'   },
-  { to: '/exercises', icon: Dumbbell,        label: 'Ejercicios',      id: 'nav-exercises'  },
+  { to: '/',            icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
+  { to: '/users',       icon: Users,           label: 'Usuarios',       id: 'nav-users',        roles: ['ADMIN'] },
+  { to: '/assignments', icon: UserCheck,        label: 'Asignaciones',   id: 'nav-assignments',  roles: ['ADMIN'] },
+  { to: '/routines',    icon: Calendar,         label: 'Rutinas',        id: 'nav-routines',     roles: ['COACH'] },
+  { to: '/exercises',   icon: Dumbbell,         label: 'Ejercicios',     id: 'nav-exercises',    roles: ['ADMIN', 'COACH'] },
 ]
 
 export default function Layout() {
@@ -33,14 +35,16 @@ export default function Layout() {
             </div>
             <div>
               <p className="font-bold text-white text-sm leading-none font-[Space_Grotesk]">GymAura</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Coach Panel</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{user?.role === 'ADMIN' ? 'Admin Panel' : 'Coach Panel'}</p>
             </div>
           </div>
         </div>
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map(({ to, icon: Icon, label, id }) => (
+          {navItems
+            .filter(({ roles }) => roles.includes(user?.role ?? ''))
+            .map(({ to, icon: Icon, label, id }) => (
             <NavLink
               key={to}
               to={to}

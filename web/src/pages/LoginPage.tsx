@@ -5,7 +5,7 @@ import { Dumbbell, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 
 export default function LoginPage() {
   const { login } = useAuth()
-  const [email, setEmail]       = useState('coach@gymaura.com')
+  const [email, setEmail]       = useState('admin@gymaura.com')
   const [password, setPassword] = useState('')
   const [show, setShow]         = useState(false)
   const [loading, setLoading]   = useState(false)
@@ -42,7 +42,7 @@ export default function LoginPage() {
             <Dumbbell className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-1">GymAura</h1>
-          <p className="text-slate-400 text-sm">Panel de Coach — Acceso exclusivo</p>
+          <p className="text-slate-400 text-sm">Panel de Administración</p>
         </div>
 
         {/* Card */}
@@ -54,7 +54,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 className="input"
-                placeholder="coach@gymaura.com"
+                placeholder="admin@gymaura.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
@@ -101,13 +101,13 @@ export default function LoginPage() {
               {loading ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Iniciando sesión...</>
               ) : (
-                'Iniciar sesión como Coach'
+                'Iniciar sesión'
               )}
             </button>
           </form>
 
           <p className="text-center text-xs text-slate-600 mt-5">
-            Solo usuarios con rol <span className="text-brand-400 font-semibold">COACH</span> pueden acceder
+            Solo usuarios con rol <span className="text-brand-400 font-semibold">ADMIN</span> o <span className="text-violet-400 font-semibold">COACH</span> pueden acceder
           </p>
         </div>
 

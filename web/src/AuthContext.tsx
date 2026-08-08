@@ -37,8 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const res: LoginResponse = await apiLogin(email, password)
-    if (res.user.role !== 'COACH') {
-      throw new Error('Acceso restringido: solo para coaches')
+    if (res.user.role !== 'ADMIN' && res.user.role !== 'COACH') {
+      throw new Error('Acceso restringido: solo administradores y coaches')
     }
     localStorage.setItem('gymaura_token', res.token)
     localStorage.setItem('gymaura_user', JSON.stringify(res.user))

@@ -5,8 +5,10 @@ import LoginPage    from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import RoutinesPage  from './pages/RoutinesPage'
 import ExercisesPage from './pages/ExercisesPage'
+import UsersPage from './pages/UsersPage'
+import AssignmentsPage from './pages/AssignmentsPage'
 
-function RequireCoach({ children }: { children: React.ReactNode }) {
+function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
   if (loading) {
     return (
@@ -18,7 +20,7 @@ function RequireCoach({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
-  if (!user || user.role !== 'COACH') return <Navigate to="/login" replace />
+  if (!user || (user.role !== 'ADMIN' && user.role !== 'COACH')) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 
@@ -31,12 +33,14 @@ export default function App() {
           <Route
             path="/"
             element={
-              <RequireCoach>
+              <RequireAuth>
                 <Layout />
-              </RequireCoach>
+              </RequireAuth>
             }
           >
             <Route index element={<DashboardPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="assignments" element={<AssignmentsPage />} />
             <Route path="routines"  element={<RoutinesPage />} />
             <Route path="exercises" element={<ExercisesPage />} />
           </Route>

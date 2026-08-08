@@ -7,11 +7,12 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'gymaura-super-secret-jwt-key-2025';
+const JWT_SECRET = process.env.JWT_SECRET || 'gymaura-default-dev-secret-change-in-prod';
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
 
 // Ensure uploads directory exists
@@ -30,6 +31,9 @@ const upload = multer({ storage });
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+const limiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Too many requests' } });
+app.use('/api/', limiter);
 
 // Static media with long cache
 app.use('/uploads/exercises', express.static(UPLOADS_DIR, {
@@ -53,6 +57,11 @@ function authMiddleware(req, res, next) {
 
 function coachOnly(req, res, next) {
   if (req.user.role !== 'COACH') return res.status(403).json({ error: 'Coach only' });
+  next();
+}
+
+function adminOnly(req, res, next) {
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin only' });
   next();
 }
 
@@ -429,6 +438,109 @@ app.post('/api/v1/huawei/sync-workout', authMiddleware, async (req, res) => {
       });
     }
     res.json({ workoutLogId: wLog.id, synced: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── ADMIN ENDPOINTS ────────────────────────────────────────────────────────
+app.get('/api/admin/stats', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const [totalUsers, totalCoaches, totalClients, totalExercises, unassigned] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { role: 'COACH' } }),
+      prisma.user.count({ where: { role: 'CLIENT' } }),
+      prisma.exercise.count(),
+      prisma.user.count({ where: { role: 'CLIENT', coachId: null } }),
+    ]);
+    res.json({ totalUsers, totalCoaches, totalClients, totalExercises, unassigned });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/admin/users', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { role, search } = req.query;
+    const where = {};
+    if (role && role !== 'ALL') where.role = role;
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    const users = await prisma.user.findMany({
+      where,
+      select: { id: true, email: true, name: true, role: true, avatar: true, goal: true, weightKg: true, heightCm: true, coachId: true, createdAt: true,
+        coach: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(users);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/admin/users', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { email, password, name, role = 'CLIENT', coachId, goal, weightKg, heightCm } = req.body;
+    if (!email || !password || !name) return res.status(400).json({ error: 'email, password, name required' });
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(409).json({ error: 'Email already registered' });
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: { email, passwordHash, name, role, coachId: coachId || null, goal: goal || 'Acondicionamiento Físico', weightKg: weightKg || 70, heightCm: heightCm || 170 }
+    });
+    res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.put('/api/admin/users/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { name, email, role, goal, weightKg, heightCm, password } = req.body;
+    const data = {};
+    if (name) data.name = name;
+    if (email) data.email = email;
+    if (role) data.role = role;
+    if (goal) data.goal = goal;
+    if (weightKg !== undefined) data.weightKg = parseFloat(weightKg);
+    if (heightCm !== undefined) data.heightCm = parseInt(heightCm);
+    if (password) data.passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.update({ where: { id: req.params.id }, data });
+    res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
+  } catch (e) {
+    console.error(e);
+    if (e.code === 'P2025') return res.status(404).json({ error: 'User not found' });
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/admin/users/:id', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    // Prevent deleting yourself
+    if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
+    await prisma.user.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    if (e.code === 'P2025') return res.status(404).json({ error: 'User not found' });
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/api/admin/assign', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { clientId, coachId } = req.body;
+    if (!clientId || !coachId) return res.status(400).json({ error: 'clientId and coachId required' });
+    const coach = await prisma.user.findUnique({ where: { id: coachId } });
+    if (!coach || coach.role !== 'COACH') return res.status(400).json({ error: 'Invalid coach' });
+    const user = await prisma.user.update({ where: { id: clientId }, data: { coachId } });
+    res.json({ id: user.id, name: user.name, coachId: user.coachId });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.put('/api/admin/unassign', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { clientId } = req.body;
+    if (!clientId) return res.status(400).json({ error: 'clientId required' });
+    const user = await prisma.user.update({ where: { id: clientId }, data: { coachId: null } });
+    res.json({ id: user.id, name: user.name, coachId: null });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 

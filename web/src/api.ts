@@ -140,3 +140,59 @@ export const saveRoutine = (athleteId: string, data: {
 export const getWorkoutHistory = (athleteId: string) =>
   fetch(`${BASE}/api/v1/user/workout-history?athleteId=${athleteId}`, { headers: getHeaders() })
     .then(r => handleResponse<SetLog[]>(r))
+
+// ─── Admin Types ──────────────────────────────────────────────────────────────
+export interface AdminUser {
+  id: string
+  name: string
+  email: string
+  role: string
+  avatar: string
+  goal: string
+  weightKg: number
+  heightCm: number
+  coachId: string | null
+  createdAt: string
+  coach?: { id: string; name: string; email: string } | null
+}
+
+export interface AdminStats {
+  totalUsers: number
+  totalCoaches: number
+  totalClients: number
+  totalExercises: number
+  unassigned: number
+}
+
+// ─── Admin API ────────────────────────────────────────────────────────────────
+export const getAdminStats = () =>
+  fetch(`${BASE}/api/admin/stats`, { headers: getHeaders() })
+    .then(r => handleResponse<AdminStats>(r))
+
+export const getAdminUsers = (params?: { role?: string; search?: string }) => {
+  const qs = new URLSearchParams()
+  if (params?.role && params.role !== 'ALL') qs.set('role', params.role)
+  if (params?.search) qs.set('search', params.search)
+  return fetch(`${BASE}/api/admin/users?${qs}`, { headers: getHeaders() })
+    .then(r => handleResponse<AdminUser[]>(r))
+}
+
+export const createAdminUser = (data: { email: string; password: string; name: string; role: string; coachId?: string; goal?: string; weightKg?: number; heightCm?: number }) =>
+  fetch(`${BASE}/api/admin/users`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(data) })
+    .then(r => handleResponse<{ id: string; email: string; name: string; role: string }>(r))
+
+export const updateAdminUser = (id: string, data: Record<string, unknown>) =>
+  fetch(`${BASE}/api/admin/users/${id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify(data) })
+    .then(r => handleResponse<{ id: string; email: string; name: string; role: string }>(r))
+
+export const deleteAdminUser = (id: string) =>
+  fetch(`${BASE}/api/admin/users/${id}`, { method: 'DELETE', headers: getHeaders() })
+    .then(r => handleResponse<{ ok: boolean }>(r))
+
+export const assignCoach = (clientId: string, coachId: string) =>
+  fetch(`${BASE}/api/admin/assign`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ clientId, coachId }) })
+    .then(r => handleResponse<{ id: string; name: string; coachId: string }>(r))
+
+export const unassignCoach = (clientId: string) =>
+  fetch(`${BASE}/api/admin/unassign`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ clientId }) })
+    .then(r => handleResponse<{ id: string; name: string; coachId: null }>(r))
