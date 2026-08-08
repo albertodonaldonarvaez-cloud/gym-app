@@ -28,9 +28,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const u = localStorage.getItem('gymaura_user')
     if (t && u) {
       try {
-        setToken(t)
-        setUser(JSON.parse(u))
-      } catch { /* ignore */ }
+        const parsed = JSON.parse(u)
+        // Validate the role is still allowed
+        if (parsed.role === 'ADMIN' || parsed.role === 'COACH') {
+          // Verify the token is still valid by calling a lightweight endpoint
+          const BASE = import.meta.env.VITE_API_URL ?? ''
+          fetch(`${BASE}/api/health`, {
+            headers: { Authorization: `Bearer ${t}` }
+          })
+            .then(res => {
+              if (res.ok) {
+                setToken(t)
+                setUser(parsed)
+              } else {
+                // Token expired or invalid, clear
+                localStorage.removeItem('gymaura_token')
+                localStorage.removeItem('gymaura_user')
+              }
+            })
+            .catch(() => {
+              // Network error - still allow cached session for offline use
+              setToken(t)
+              setUser(parsed)
+            })
+            .finally(() => setLoading(false))
+          return
+        }
+      } catch { /* ignore corrupted data */ }
+      // If we get here, data was invalid
+      localStorage.removeItem('gymaura_token')
+      localStorage.removeItem('gymaura_user')
     }
     setLoading(false)
   }, [])
@@ -38,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     const res: LoginResponse = await apiLogin(email, password)
     if (res.user.role !== 'ADMIN' && res.user.role !== 'COACH') {
-      throw new Error('Acceso restringido: solo administradores y coaches')
+      throw new Error('Acceso restringido: solo personal autorizado')
     }
     localStorage.setItem('gymaura_token', res.token)
     localStorage.setItem('gymaura_user', JSON.stringify(res.user))

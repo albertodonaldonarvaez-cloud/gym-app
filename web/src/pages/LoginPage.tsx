@@ -1,15 +1,21 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../AuthContext'
+import { Navigate } from 'react-router-dom'
 import { Dumbbell, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 
 export default function LoginPage() {
-  const { login } = useAuth()
-  const [email, setEmail]       = useState('admin@gymaura.com')
+  const { user, login } = useAuth()
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow]         = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
+
+  // If already logged in, redirect to dashboard
+  if (user && (user.role === 'ADMIN' || user.role === 'COACH')) {
+    return <Navigate to="/" replace />
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -17,6 +23,7 @@ export default function LoginPage() {
     setError('')
     try {
       await login(email, password)
+      // After successful login, React will re-render and the Navigate above will redirect
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión')
     } finally {
@@ -26,7 +33,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden"
-         style={{ background: 'radial-gradient(ellipse at 20% 50%, rgba(0,122,255,0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.06) 0%, transparent 60%), #F8FAFC' }}>
+         style={{ background: 'radial-gradient(ellipse at 20% 50%, rgba(0,122,255,0.06) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.04) 0%, transparent 60%), #F8FAFC' }}>
 
       {/* Decorative blobs */}
       <div className="absolute top-0 left-0 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none"
@@ -39,10 +46,10 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 glow-brand"
                style={{ background: 'linear-gradient(135deg, #3d6eff 0%, #8b5cf6 100%)' }}>
-            <Dumbbell className="w-8 h-8 text-gray-900" />
+            <Dumbbell className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-1">GymAura</h1>
-          <p className="text-gray-500 text-sm">Panel de Administración</p>
+          <p className="text-gray-500 text-sm">Iniciar Sesión</p>
         </div>
 
         {/* Card */}
@@ -54,7 +61,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 className="input"
-                placeholder="admin@gymaura.com"
+                placeholder="tu-email@ejemplo.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
@@ -106,8 +113,8 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="text-center text-xs text-gray-500 mt-5">
-            Solo usuarios con rol <span className="text-blue-600 font-semibold">ADMIN</span> o <span className="text-violet-600 font-semibold">COACH</span> pueden acceder
+          <p className="text-center text-xs text-gray-400 mt-5">
+            Acceso exclusivo para personal autorizado
           </p>
         </div>
 
