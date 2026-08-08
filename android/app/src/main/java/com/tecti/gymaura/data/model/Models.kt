@@ -30,7 +30,7 @@ data class AuthResponse(
 )
 
 enum class UserRole {
-    CLIENT, COACH
+    CLIENT, COACH, ADMIN
 }
 
 // ─── USER / CLIENT ─────────────────────────────────────────────────────────────
@@ -58,6 +58,13 @@ data class Exercise(
     val defaultReps: Int = 12,
     val mediaUrl: String? = null,
     val icon: String = "dumbbell"
+)
+
+data class ExercisesResponse(
+    val data: List<Exercise> = emptyList(),
+    val total: Int = 0,
+    val page: Int = 1,
+    val pages: Int = 1
 )
 
 // ─── ROUTINE ──────────────────────────────────────────────────────────────────

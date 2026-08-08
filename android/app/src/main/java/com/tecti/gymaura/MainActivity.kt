@@ -87,7 +87,11 @@ fun MainAppScreen(onLogout: () -> Unit) {
     var activeTab by remember { mutableStateOf(NavigationTab.DASHBOARD) }
     
     val savedRoleStr = ServerRepository.getUserRole() ?: "CLIENT"
-    val savedRole = if (savedRoleStr == "COACH") UserRole.COACH else UserRole.CLIENT
+    val savedRole = when (savedRoleStr) {
+        "COACH" -> UserRole.COACH
+        "ADMIN" -> UserRole.ADMIN
+        else -> UserRole.CLIENT
+    }
     var currentRole by remember { mutableStateOf(savedRole) }
     
     var showServerConfigDialog by remember { mutableStateOf(false) }

@@ -14,7 +14,7 @@ async function main() {
   const coachHash = await bcrypt.hash('Coach2025!', 12);
   const coach = await prisma.user.upsert({
     where: { email: 'coach@gymaura.com' },
-    update: {},
+    update: { passwordHash: coachHash, name: 'Coach Principal', role: 'COACH' },
     create: { email: 'coach@gymaura.com', passwordHash: coachHash, name: 'Coach Principal', role: 'COACH' }
   });
   console.log('✅ Coach created:', coach.email);
@@ -32,7 +32,7 @@ async function main() {
   const clientHash = await bcrypt.hash('Client2025!', 12);
   const client = await prisma.user.upsert({
     where: { email: 'cliente@gymaura.com' },
-    update: {},
+    update: { passwordHash: clientHash, name: 'Atleta Demo', role: 'CLIENT', coachId: coach.id },
     create: { email: 'cliente@gymaura.com', passwordHash: clientHash, name: 'Atleta Demo', role: 'CLIENT', coachId: coach.id, goal: 'Hipertrofia', weightKg: 75, heightCm: 175 }
   });
   console.log('✅ Client created:', client.email);

@@ -34,8 +34,9 @@ interface ApiService {
     @GET("api/exercises")
     suspend fun getExercises(
         @Query("category") category: String? = null,
-        @Query("search") search: String? = null
-    ): Response<List<Exercise>>
+        @Query("search") search: String? = null,
+        @Query("limit") limit: Int = 1000
+    ): Response<ExercisesResponse>
 
     @POST("api/exercises")
     suspend fun createExercise(

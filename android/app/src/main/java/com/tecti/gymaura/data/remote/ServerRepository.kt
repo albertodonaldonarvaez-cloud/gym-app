@@ -144,7 +144,7 @@ object ServerRepository {
     suspend fun getExercises(category: String? = null, search: String? = null): List<Exercise> {
         return try {
             val resp = api().getExercises(category, search)
-            if (resp.isSuccessful) resp.body() ?: emptyList() else emptyList()
+            if (resp.isSuccessful) resp.body()?.data ?: emptyList() else emptyList()
         } catch (e: Exception) { Log.e(TAG, "getExercises error: ${e.message}"); emptyList() }
     }
 
