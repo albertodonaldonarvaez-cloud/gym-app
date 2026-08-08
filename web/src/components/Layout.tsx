@@ -47,7 +47,7 @@ export default function Layout() {
               id={id}
               end={to === '/'}
               className={({ isActive }) =>
-                clsx('nav-item', isActive && 'active')
+                clsx('nav-item group', isActive && 'active')
               }
             >
               <Icon className="w-4 h-4" />

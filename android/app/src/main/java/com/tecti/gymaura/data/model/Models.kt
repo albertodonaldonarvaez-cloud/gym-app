@@ -29,11 +29,16 @@ data class AuthResponse(
     val user: AuthUser
 )
 
+enum class UserRole {
+    CLIENT, COACH
+}
+
 // ─── USER / CLIENT ─────────────────────────────────────────────────────────────
 data class Client(
     val id: String,
     val name: String,
     val email: String = "",
+    val phone: String = "",
     val avatar: String = "",
     val goal: String = "Acondicionamiento Físico",
     val weightKg: Double = 70.0,
@@ -123,6 +128,14 @@ data class CoachInfo(
     val name: String,
     val email: String,
     val avatar: String = ""
+)
+
+data class Coach(
+    val id: String,
+    val name: String,
+    val email: String,
+    val avatar: String = "",
+    val gymName: String = "GymAura Studio"
 )
 
 // ─── HISTORY ──────────────────────────────────────────────────────────────────

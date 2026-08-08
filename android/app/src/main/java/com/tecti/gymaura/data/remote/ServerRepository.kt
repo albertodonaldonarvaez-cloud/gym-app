@@ -40,6 +40,9 @@ object ServerRepository {
     private val _currentUrlState = MutableStateFlow(baseUrl)
     val currentUrlState: StateFlow<String> = _currentUrlState
 
+    private val _isServerConnected = MutableStateFlow(false)
+    val isServerConnected: StateFlow<Boolean> = _isServerConnected
+
     private var _appContext: Context? = null
 
     // Initialize with context (call from Application class)
@@ -69,6 +72,15 @@ object ServerRepository {
     fun getUserRole(): String? = _userRole
     fun getUserName(): String? = _userName
     fun isLoggedIn(): Boolean = !_token.isNullOrBlank()
+
+    suspend fun getCoachInfo(): Coach? {
+        return try {
+            val resp = api().getCoach(authHeader())
+            if (resp.isSuccessful) {
+                resp.body()?.let { info -> Coach(id = info.id, name = info.name, email = info.email, avatar = info.avatar) }
+            } else null
+        } catch (e: Exception) { Log.e(TAG, "getCoachInfo error: ${e.message}"); null }
+    }
 
     private fun authHeader(): String = "Bearer ${_token ?: ""}"
 
@@ -107,6 +119,10 @@ object ServerRepository {
         _currentUrlState.value = clean
     }
 
+    fun updateBaseUrl(url: String) {
+        setBaseUrl(url)
+    }
+
     // ─── AUTH ──────────────────────────────────────────────────────────────────
     suspend fun login(email: String, password: String): AuthResponse? {
         return try {
@@ -132,12 +148,40 @@ object ServerRepository {
         } catch (e: Exception) { Log.e(TAG, "getExercises error: ${e.message}"); emptyList() }
     }
 
+    suspend fun addExercise(exercise: Exercise): Exercise? {
+        return try {
+            val body = mapOf(
+                "name" to exercise.name,
+                "category" to exercise.category,
+                "targetMuscle" to exercise.targetMuscle,
+                "equipment" to exercise.equipment,
+                "instructions" to exercise.instructions
+            )
+            val resp = api().createExercise(authHeader(), body)
+            if (resp.isSuccessful) resp.body() else null
+        } catch (e: Exception) { Log.e(TAG, "addExercise error: ${e.message}"); null }
+    }
+
     // ─── CLIENTS ──────────────────────────────────────────────────────────────
     suspend fun getClients(): List<Client> {
         return try {
             val resp = api().getClients(authHeader())
             if (resp.isSuccessful) resp.body() ?: emptyList() else emptyList()
         } catch (e: Exception) { Log.e(TAG, "getClients error: ${e.message}"); emptyList() }
+    }
+
+    suspend fun addClient(client: Client): Client? {
+        return try {
+            val body = mapOf(
+                "name" to client.name,
+                "email" to client.email,
+                "goal" to client.goal,
+                "weightKg" to client.weightKg.toString(),
+                "heightCm" to client.heightCm.toString()
+            )
+            val resp = api().createClient(authHeader(), body)
+            if (resp.isSuccessful) resp.body() else null
+        } catch (e: Exception) { Log.e(TAG, "addClient error: ${e.message}"); null }
     }
 
     // ─── ROUTINES ─────────────────────────────────────────────────────────────
@@ -161,6 +205,10 @@ object ServerRepository {
             val resp = api().saveWeeklyRoutine(authHeader(), body)
             if (resp.isSuccessful) resp.body() else null
         } catch (e: Exception) { Log.e(TAG, "saveWeeklyRoutine error: ${e.message}"); null }
+    }
+
+    suspend fun saveWeeklyRoutine(routine: WeeklyRoutine): WeeklyRoutine? {
+        return saveWeeklyRoutine(routine.clientId, routine.title, routine.description, routine.schedule as Map<String, Any>)
     }
 
     // ─── WEIGHT LOGS ──────────────────────────────────────────────────────────
@@ -208,5 +256,11 @@ object ServerRepository {
             val resp = api().getHealth()
             resp.isSuccessful
         } catch (e: Exception) { false }
+    }
+
+    suspend fun testConnection(): Boolean {
+        val result = checkHealth()
+        _isServerConnected.value = result
+        return result
     }
 }

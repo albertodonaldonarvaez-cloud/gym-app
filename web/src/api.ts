@@ -137,6 +137,6 @@ export const saveRoutine = (athleteId: string, data: {
   }).then(r => handleResponse<RoutinePlan>(r))
 
 // ─── Workout history ──────────────────────────────────────────────────────────
-export const getWorkoutHistory = (_athleteId: string) =>
-  fetch(`${BASE}/api/v1/user/workout-history`, { headers: getHeaders() })
+export const getWorkoutHistory = (athleteId: string) =>
+  fetch(`${BASE}/api/v1/user/workout-history?athleteId=${athleteId}`, { headers: getHeaders() })
     .then(r => handleResponse<SetLog[]>(r))

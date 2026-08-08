@@ -1,0 +1,1 @@
+{"version":"7.0.2","errors":true,"root":["./src/app.tsx","./src/authcontext.tsx","./src/api.ts","./src/main.tsx","./src/components/layout.tsx","./src/pages/dashboardpage.tsx","./src/pages/exercisespage.tsx","./src/pages/loginpage.tsx","./src/pages/routinespage.tsx"],"packageJsons":["./package.json"]}

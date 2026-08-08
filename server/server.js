@@ -101,7 +101,7 @@ app.get('/api/coach', authMiddleware, async (req, res) => {
   try {
     const coaches = await prisma.user.findMany({ where: { role: 'COACH' }, select: { id: true, email: true, name: true, avatar: true } });
     res.json(coaches[0] || {});
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 app.get('/api/clients', authMiddleware, async (req, res) => {
@@ -112,7 +112,7 @@ app.get('/api/clients', authMiddleware, async (req, res) => {
     });
     // Map to legacy format
     res.json(clients.map(c => ({ id: c.id, name: c.name, email: c.email, avatar: c.avatar, goal: c.goal, weightKg: c.weightKg, heightCm: c.heightCm, activeRoutineId: null })));
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 app.post('/api/clients', authMiddleware, coachOnly, async (req, res) => {
@@ -209,7 +209,7 @@ app.post('/api/exercises', authMiddleware, coachOnly, async (req, res) => {
       }
     });
     res.status(201).json({ ...ex, targetMuscle: ex.muscleGroup, icon: 'dumbbell' });
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 // Upload media for exercise
@@ -221,7 +221,7 @@ app.post('/api/exercises/:id/media', authMiddleware, coachOnly, upload.single('m
       data: { mediaFilename: req.file.filename, mediaUrl: url }
     });
     res.json({ mediaUrl: ex.mediaUrl });
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 // ─── ROUTINES (LEGACY + V1) ─────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ app.get('/api/routines/weekly/:clientId', authMiddleware, async (req, res) => {
       return res.json({ id: null, clientId, title: 'Rutina Semanal', description: 'Sin asignar', schedule: emptyDays });
     }
     res.json({ id: routine.id, clientId: routine.athleteId, title: routine.title, description: routine.description, schedule: routine.schedule });
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 app.post('/api/routines/weekly', authMiddleware, coachOnly, async (req, res) => {
@@ -262,17 +262,29 @@ app.get('/api/v1/routines/current-week', authMiddleware, async (req, res) => {
     if (!routine) return res.json({ schedule: {} });
     // Enrich with exercise media URLs
     const schedule = routine.schedule;
+    // Collect all exercise IDs
+    const exerciseIds = new Set();
     for (const dayKey of Object.keys(schedule)) {
       const day = schedule[dayKey];
       if (day.exercises && Array.isArray(day.exercises)) {
         for (const ex of day.exercises) {
-          if (ex.exerciseId) {
-            const exData = await prisma.exercise.findUnique({ where: { id: ex.exerciseId } });
-            if (exData) {
-              ex.name = exData.name;
-              ex.mediaUrl = exData.mediaUrl || null;
-              ex.muscleGroup = exData.muscleGroup;
-            }
+          if (ex.exerciseId) exerciseIds.add(ex.exerciseId);
+        }
+      }
+    }
+    // Bulk fetch exercises
+    const exercisesData = await prisma.exercise.findMany({ where: { id: { in: [...exerciseIds] } } });
+    const exercisesMap = Object.fromEntries(exercisesData.map(e => [e.id, e]));
+    // Enrich schedule
+    for (const dayKey of Object.keys(schedule)) {
+      const day = schedule[dayKey];
+      if (day.exercises && Array.isArray(day.exercises)) {
+        for (const ex of day.exercises) {
+          const exData = exercisesMap[ex.exerciseId];
+          if (exData) {
+            ex.name = exData.name;
+            ex.mediaUrl = exData.mediaUrl || null;
+            ex.muscleGroup = exData.muscleGroup;
           }
         }
       }
@@ -294,7 +306,7 @@ app.get('/api/logs/:clientId', authMiddleware, async (req, res) => {
       date: l.createdAt.toISOString().split('T')[0], setNumber: l.setNumber,
       weightKg: l.weightKg, repsCompleted: l.reps, notes: l.notes
     })));
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 app.post('/api/logs', authMiddleware, async (req, res) => {
@@ -343,9 +355,9 @@ app.post('/api/v1/workouts/sync', authMiddleware, async (req, res) => {
             workoutLogId: wLog.id,
             athleteId,
             exerciseId: s.exerciseId,
-            weightKg: s.weightKg || 0,
-            reps: s.reps || 0,
-            rpe: s.rpe || 0,
+            weightKg: s.weightKg ?? 0,
+            reps: s.reps ?? 0,
+            rpe: s.rpe ?? 0,
             setNumber: s.setNumber || 1,
             notes: s.notes || ''
           }
@@ -382,7 +394,7 @@ app.get('/api/v1/user/workout-history', authMiddleware, async (req, res) => {
       notes: l.notes,
       createdAt: l.createdAt.toISOString()
     })));
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 app.get('/api/v1/exercises/:id/last-performance', authMiddleware, async (req, res) => {
@@ -394,7 +406,7 @@ app.get('/api/v1/exercises/:id/last-performance', authMiddleware, async (req, re
     });
     if (!last) return res.json(null);
     res.json({ weightKg: last.weightKg, reps: last.reps, rpe: last.rpe, createdAt: last.createdAt.toISOString() });
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 // ─── V1 HUAWEI HEALTH KIT ─────────────────────────────────────────────────────
