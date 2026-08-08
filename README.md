@@ -72,38 +72,54 @@ graph TD
 
 ---
 
-## 🛠️ Instalación y Despliegue con Docker
+## 🛠️ Instalación y Despliegue
 
-### 🐳 Despliegue del Servidor con Docker Compose (Recomendado)
-
-Para levantar el servidor backend de manera aislada, ligera y persistente:
+### 🚀 Instalación Rápida (Recomendado)
 
 ```bash
 # Clonar repositorio
 git clone https://github.com/albertodonaldonarvaez-cloud/gym-app.git
 cd gym-app
 
-# Iniciar contenedor Docker en segundo plano
+# Linux / macOS — Ejecutar instalador
+chmod +x install.sh
+./install.sh
+
+# Windows — Doble clic en install.bat o ejecutar:
+.\install.bat
+```
+
+El instalador automáticamente:
+1. ✅ Verifica que Docker esté instalado
+2. ✅ Genera un archivo `.env` con secretos seguros
+3. ✅ Construye y levanta los 3 servicios (PostgreSQL + Backend + Web)
+4. ✅ Ejecuta migraciones y seed de datos
+5. ✅ Espera hasta que el backend responda `/api/health`
+6. ✅ Muestra las URLs de acceso y credenciales
+
+### 🐳 Despliegue Manual con Docker Compose
+
+```bash
+cd gym-app
+
+# Iniciar todos los servicios en segundo plano
 docker compose up -d --build
 ```
 
-El servicio `gymaura-backend-api` estará disponible inmediatamente en el puerto `3000` (`http://localhost:3000` o la IP de tu servidor VPS).
+### 📡 Servicios Desplegados
 
-### ⚙️ Despliegue Manual con Docker (CLI)
+| Servicio | Puerto | URL |
+|---|---|---|
+| **Backend API** | `3002` | `http://tu-servidor:3002` |
+| **Web Coach Panel** | `3005` | `http://tu-servidor:3005` |
+| **PostgreSQL** | `5434` | `localhost:5434` |
 
-```bash
-cd gym-app/server
+### 🔑 Credenciales por Defecto
 
-# Construir imagen Docker
-docker build -t gymaura-backend:latest .
-
-# Iniciar contenedor con volumen persistente para la DB
-docker run -d \
-  --name gymaura-api \
-  -p 3000:3000 \
-  -v $(pwd)/gym_db.json:/app/gym_db.json \
-  gymaura-backend:latest
-```
+| Rol | Email | Contraseña |
+|---|---|---|
+| Coach | `coach@gymaura.com` | `GymAura2025!` |
+| Cliente | `cliente@gymaura.com` | `GymAura2025!` |
 
 ---
 
