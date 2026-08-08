@@ -23,7 +23,7 @@ async function main() {
   const adminHash = await bcrypt.hash('GymAura2025!', 12);
   const admin = await prisma.user.upsert({
     where: { email: 'admin@gymaura.com' },
-    update: {},
+    update: { passwordHash: adminHash, name: 'Administrador', role: 'ADMIN' },
     create: { email: 'admin@gymaura.com', passwordHash: adminHash, name: 'Administrador', role: 'ADMIN' }
   });
   console.log('✅ Admin created:', admin.email);
