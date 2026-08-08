@@ -22,7 +22,7 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
       className="card p-0 overflow-hidden cursor-pointer group hover:border-brand-500/30 hover:shadow-lg hover:shadow-brand-500/5 transition-all duration-300 fade-in"
     >
       {/* Image */}
-      <div className="relative aspect-video bg-slate-800 overflow-hidden">
+      <div className="relative aspect-video bg-gray-100 overflow-hidden">
         {imgs.length > 0 && !imgError ? (
           <>
             <img
@@ -49,11 +49,11 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <PlayCircle className="w-6 h-6 text-white/80 drop-shadow" />
+              <PlayCircle className="w-6 h-6 text-gray-900/80 drop-shadow" />
             </div>
           </>
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-700">
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400">
             <ImageOff className="w-8 h-8 opacity-30" />
             <span className="text-xs opacity-50">Sin imagen</span>
           </div>
@@ -62,14 +62,14 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
 
       {/* Info */}
       <div className="p-4 space-y-2">
-        <h3 className="font-semibold text-slate-100 text-sm leading-tight group-hover:text-brand-400 transition-colors line-clamp-2">
+        <h3 className="font-semibold text-gray-900 text-sm leading-tight group-hover:text-blue-600 transition-colors line-clamp-2">
           {exercise.name}
         </h3>
         <div className="flex flex-wrap gap-1">
           <span className="badge-purple">{exercise.muscleGroup || exercise.targetMuscle}</span>
           <span className="badge-gray">{exercise.equipment}</span>
         </div>
-        <p className="text-xs text-slate-600 font-medium">{exercise.category}</p>
+        <p className="text-xs text-gray-500 font-medium">{exercise.category}</p>
       </div>
     </div>
   )
@@ -81,34 +81,34 @@ function ExerciseModal({ exercise, onClose }: { exercise: Exercise; onClose: () 
   const instructions = exercise.instructions?.split('\n').filter(Boolean) ?? []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm"
          onClick={onClose}>
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+      <div className="w-full max-w-2xl bg-white border border-gray-300 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
            onClick={e => e.stopPropagation()}>
         {/* Image */}
-        <div className="relative aspect-video bg-slate-800">
+        <div className="relative aspect-video bg-gray-100">
           {imgs.length > 0 && imgs[imgIdx] ? (
             <img src={imgs[imgIdx]} alt={exercise.name} className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-700">
+            <div className="w-full h-full flex items-center justify-center text-gray-400">
               <ImageOff className="w-12 h-12 opacity-20" />
             </div>
           )}
           <button onClick={onClose} id="btn-close-modal"
-                  className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-white transition-colors">
+                  className="absolute top-3 right-3 p-1.5 rounded-lg bg-white/80 hover:bg-gray-900/40 text-gray-900 transition-colors">
             <X className="w-4 h-4" />
           </button>
           {imgs.length > 1 && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
               <button onClick={() => setImgIdx(i => Math.max(0, i-1))}
-                      className="p-1 rounded-full bg-black/40 text-white hover:bg-black/60">
+                      className="p-1 rounded-full bg-white/80 text-gray-900 hover:bg-gray-900/40">
                 <ChevronLeft className="w-3 h-3" />
               </button>
-              <span className="text-xs text-white/70 bg-black/40 px-2 py-0.5 rounded-full">
+              <span className="text-xs text-gray-900/70 bg-white/80 px-2 py-0.5 rounded-full">
                 {imgIdx+1}/{imgs.length}
               </span>
               <button onClick={() => setImgIdx(i => Math.min(imgs.length-1, i+1))}
-                      className="p-1 rounded-full bg-black/40 text-white hover:bg-black/60">
+                      className="p-1 rounded-full bg-white/80 text-gray-900 hover:bg-gray-900/40">
                 <ChevronRight className="w-3 h-3" />
               </button>
             </div>
@@ -118,7 +118,7 @@ function ExerciseModal({ exercise, onClose }: { exercise: Exercise; onClose: () 
         {/* Content */}
         <div className="p-6 space-y-4">
           <div>
-            <h2 className="text-xl font-bold text-white">{exercise.name}</h2>
+            <h2 className="text-xl font-bold text-gray-900">{exercise.name}</h2>
             <div className="flex flex-wrap gap-2 mt-2">
               <span className="badge-purple">{exercise.muscleGroup || exercise.targetMuscle}</span>
               <span className="badge-gray">{exercise.equipment}</span>
@@ -127,13 +127,13 @@ function ExerciseModal({ exercise, onClose }: { exercise: Exercise; onClose: () 
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 rounded-xl bg-slate-800 text-center">
-              <p className="text-2xl font-bold text-brand-400">{exercise.defaultSets}</p>
-              <p className="text-xs text-slate-500 mt-0.5">Series sugeridas</p>
+            <div className="p-3 rounded-xl bg-gray-100 text-center">
+              <p className="text-2xl font-bold text-blue-600">{exercise.defaultSets}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Series sugeridas</p>
             </div>
-            <div className="p-3 rounded-xl bg-slate-800 text-center">
-              <p className="text-2xl font-bold text-violet-400">{exercise.defaultReps}</p>
-              <p className="text-xs text-slate-500 mt-0.5">Reps sugeridas</p>
+            <div className="p-3 rounded-xl bg-gray-100 text-center">
+              <p className="text-2xl font-bold text-violet-600">{exercise.defaultReps}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Reps sugeridas</p>
             </div>
           </div>
 
@@ -142,8 +142,8 @@ function ExerciseModal({ exercise, onClose }: { exercise: Exercise; onClose: () 
               <p className="label mb-3">Instrucciones</p>
               <ol className="space-y-2">
                 {instructions.map((step, i) => (
-                  <li key={i} className="flex gap-3 text-sm text-slate-400">
-                    <span className="shrink-0 w-5 h-5 rounded-full bg-brand-500/15 text-brand-400 text-xs font-bold flex items-center justify-center mt-0.5">
+                  <li key={i} className="flex gap-3 text-sm text-gray-500">
+                    <span className="shrink-0 w-5 h-5 rounded-full bg-blue-50 text-blue-600 text-xs font-bold flex items-center justify-center mt-0.5">
                       {i+1}
                     </span>
                     {step}
@@ -196,8 +196,8 @@ export default function ExercisesPage() {
     <div className="space-y-6 fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-white">Catálogo de Ejercicios</h1>
-        <p className="text-slate-500 text-sm mt-1">
+        <h1 className="text-3xl font-bold text-gray-900">Catálogo de Ejercicios</h1>
+        <p className="text-gray-500 text-sm mt-1">
           {total.toLocaleString()} ejercicios disponibles · Free Exercise DB
         </p>
       </div>
@@ -206,7 +206,7 @@ export default function ExercisesPage() {
       <div className="card space-y-4">
         <div className="flex gap-3">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
               id="main-exercise-search"
               className="input pl-9"
@@ -218,12 +218,12 @@ export default function ExercisesPage() {
           <button
             id="btn-toggle-filters"
             onClick={() => setShowFilters(!showFilters)}
-            className={clsx('btn-secondary relative', showFilters && 'border-brand-500/40 text-brand-400')}
+            className={clsx('btn-secondary relative', showFilters && 'border-brand-500/40 text-blue-600')}
           >
             <Filter className="w-4 h-4" />
             Filtros
             {activeFilters > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-brand-500 text-white text-[9px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-brand-500 text-gray-900 text-[9px] font-bold flex items-center justify-center">
                 {activeFilters}
               </span>
             )}
@@ -231,7 +231,7 @@ export default function ExercisesPage() {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 border-t border-slate-800 fade-in">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 border-t border-gray-200 fade-in">
             {/* Category */}
             <div>
               <label className="label">Categoría</label>
@@ -241,7 +241,7 @@ export default function ExercisesPage() {
                   <option value="">Todas</option>
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
               </div>
             </div>
             {/* Muscle */}
@@ -253,14 +253,14 @@ export default function ExercisesPage() {
                   <option value="">Todos</option>
                   {MUSCLES.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
               </div>
             </div>
             {/* Clear */}
             <div className="flex items-end">
               {activeFilters > 0 && (
                 <button onClick={() => { setCategory(''); setMuscle(''); setEquipment('') }}
-                        className="btn-ghost text-red-400 hover:text-red-300 hover:bg-red-500/10">
+                        className="btn-ghost text-red-600 hover:text-red-300 hover:bg-red-50">
                   <X className="w-3.5 h-3.5" />
                   Limpiar filtros
                 </button>
@@ -277,8 +277,8 @@ export default function ExercisesPage() {
                     className={clsx(
                       'px-3 py-1 rounded-full text-xs font-medium transition-all',
                       muscle === chip
-                        ? 'bg-brand-500 text-white'
-                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                        ? 'bg-brand-500 text-gray-900'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-900'
                     )}>
               {chip}
             </button>
@@ -288,12 +288,12 @@ export default function ExercisesPage() {
 
       {/* Grid */}
       {loading ? (
-        <div className="flex items-center justify-center py-20 gap-3 text-slate-500">
+        <div className="flex items-center justify-center py-20 gap-3 text-gray-500">
           <Loader2 className="w-6 h-6 animate-spin" />
           Cargando ejercicios...
         </div>
       ) : exercises.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-600">
+        <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-500">
           <Dumbbell className="w-12 h-12 opacity-20" />
           <p>Sin resultados para tu búsqueda</p>
           <button onClick={() => { setSearch(''); setCategory(''); setMuscle('') }}
@@ -326,7 +326,7 @@ export default function ExercisesPage() {
                         onClick={() => { setPage(p); load(p) }}
                         className={clsx(
                           'w-9 h-9 rounded-lg text-sm font-medium transition-all',
-                          p === page ? 'bg-brand-600 text-white' : 'text-slate-500 hover:bg-slate-800'
+                          p === page ? 'bg-brand-600 text-gray-900' : 'text-gray-500 hover:bg-gray-100'
                         )}>
                   {p}
                 </button>

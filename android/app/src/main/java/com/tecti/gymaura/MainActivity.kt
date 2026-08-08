@@ -33,17 +33,48 @@ import com.tecti.gymaura.ui.screens.ClientDashboardScreen
 import com.tecti.gymaura.ui.screens.CoachDashboardScreen
 import com.tecti.gymaura.ui.screens.ExerciseCatalogScreen
 import com.tecti.gymaura.ui.screens.ServerConfigDialog
+import com.tecti.gymaura.ui.screens.LoginScreen
 import com.tecti.gymaura.ui.theme.*
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ServerRepository.init(this)
+        
         setContent {
             GymAuraTheme {
-                MainAppScreen()
+                var isSessionLoaded by remember { mutableStateOf(false) }
+                
+                LaunchedEffect(Unit) {
+                    ServerRepository.loadSession()
+                    isSessionLoaded = true
+                }
+                
+                if (isSessionLoaded) {
+                    GymAuraApp()
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = AppleBlue)
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+fun GymAuraApp() {
+    var isLoggedIn by remember { mutableStateOf(ServerRepository.isLoggedIn()) }
+
+    if (isLoggedIn) {
+        MainAppScreen(onLogout = {
+            isLoggedIn = false
+        })
+    } else {
+        LoginScreen(onLoginSuccess = {
+            isLoggedIn = true
+        })
     }
 }
 
@@ -52,9 +83,13 @@ enum class NavigationTab {
 }
 
 @Composable
-fun MainAppScreen() {
+fun MainAppScreen(onLogout: () -> Unit) {
     var activeTab by remember { mutableStateOf(NavigationTab.DASHBOARD) }
-    var currentRole by remember { mutableStateOf(UserRole.CLIENT) }
+    
+    val savedRoleStr = ServerRepository.getUserRole() ?: "CLIENT"
+    val savedRole = if (savedRoleStr == "COACH") UserRole.COACH else UserRole.CLIENT
+    var currentRole by remember { mutableStateOf(savedRole) }
+    
     var showServerConfigDialog by remember { mutableStateOf(false) }
 
     val isConnected by ServerRepository.isServerConnected.collectAsState()
@@ -112,7 +147,8 @@ fun MainAppScreen() {
                             ServerSettingsView(
                                 isConnected = isConnected,
                                 currentUrl = currentUrl,
-                                onOpenDialog = { showServerConfigDialog = true }
+                                onOpenDialog = { showServerConfigDialog = true },
+                                onLogout = onLogout
                             )
                         }
                     }
@@ -342,8 +378,11 @@ fun NavItem(
 fun ServerSettingsView(
     isConnected: Boolean,
     currentUrl: String,
-    onOpenDialog: () -> Unit
+    onOpenDialog: () -> Unit,
+    onLogout: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -393,6 +432,23 @@ fun ServerSettingsView(
             Icon(imageVector = Icons.Default.Settings, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Cambiar Dirección del Servidor", fontWeight = FontWeight.Bold)
+        }
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Button(
+            onClick = {
+                scope.launch {
+                    ServerRepository.clearSession()
+                    onLogout()
+                }
+            },
+            shape = RoundedCornerShape(20.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AppleOrange)
+        ) {
+            Icon(imageVector = Icons.Default.Person, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Cerrar Sesión", fontWeight = FontWeight.Bold)
         }
     }
 }

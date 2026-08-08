@@ -106,8 +106,8 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Gestión de Usuarios</h1>
-          <p className="text-slate-500 text-sm mt-1">{users.length} usuarios encontrados</p>
+          <h1 className="text-2xl font-bold text-gray-900">Gestión de Usuarios</h1>
+          <p className="text-gray-500 text-sm mt-1">{users.length} usuarios encontrados</p>
         </div>
         <button onClick={() => { resetForm(); setShowModal(true) }} className="btn-primary" id="btn-create-user">
           <Plus className="w-4 h-4" /> Nuevo Usuario
@@ -116,13 +116,13 @@ export default function UsersPage() {
 
       {/* Alerts */}
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
           <AlertCircle className="w-4 h-4 shrink-0" /> {error}
           <button onClick={() => setError('')} className="ml-auto"><X className="w-3.5 h-3.5" /></button>
         </div>
       )}
       {success && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 text-sm">
           <Check className="w-4 h-4 shrink-0" /> {success}
         </div>
       )}
@@ -130,7 +130,7 @@ export default function UsersPage() {
       {/* Filters */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
             className="input pl-10"
             placeholder="Buscar por nombre o email..."
@@ -138,15 +138,15 @@ export default function UsersPage() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex gap-1 bg-slate-900 rounded-xl p-1">
+        <div className="flex gap-1 bg-white rounded-xl p-1">
           {ROLE_TABS.map(tab => (
             <button
               key={tab}
               onClick={() => setRoleFilter(tab)}
               className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                 roleFilter === tab
-                  ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/25'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  ? 'bg-brand-600 text-gray-900 shadow-lg shadow-brand-600/25'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
               {tab === 'ALL' ? 'Todos' : tab}
@@ -158,7 +158,7 @@ export default function UsersPage() {
       {/* Table */}
       <div className="card p-0 overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-16 gap-3 text-slate-500">
+          <div className="flex items-center justify-center py-16 gap-3 text-gray-500">
             <Loader2 className="w-5 h-5 animate-spin" /> Cargando usuarios...
           </div>
         ) : (
@@ -176,18 +176,18 @@ export default function UsersPage() {
               <tbody>
                 {users.map((u, i) => {
                   const initials = u.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase()
-                  const colors = ['bg-brand-500/20 text-brand-400','bg-violet-500/20 text-violet-400','bg-emerald-500/20 text-emerald-400','bg-amber-500/20 text-amber-400']
+                  const colors = ['bg-blue-100 text-blue-600','bg-violet-100 text-violet-600','bg-emerald-100 text-emerald-600','bg-amber-100 text-amber-600']
                   const RIcon = ROLE_ICONS[u.role] || User
                   return (
-                    <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors group">
+                    <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors group">
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-3">
                           <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${colors[i % colors.length]}`}>
                             {initials}
                           </div>
                           <div>
-                            <p className="font-semibold text-slate-100 text-sm">{u.name}</p>
-                            <p className="text-xs text-slate-500">{u.email}</p>
+                            <p className="font-semibold text-gray-900 text-sm">{u.name}</p>
+                            <p className="text-xs text-gray-500">{u.email}</p>
                           </div>
                         </div>
                       </td>
@@ -196,10 +196,10 @@ export default function UsersPage() {
                           <RIcon className="w-3 h-3" /> {u.role}
                         </span>
                       </td>
-                      <td className="py-4 px-6 text-sm text-slate-400">
-                        {u.coach ? u.coach.name : u.role === 'CLIENT' ? <span className="text-red-400 text-xs">Sin asignar</span> : '—'}
+                      <td className="py-4 px-6 text-sm text-gray-500">
+                        {u.coach ? u.coach.name : u.role === 'CLIENT' ? <span className="text-red-600 text-xs">Sin asignar</span> : '—'}
                       </td>
-                      <td className="py-4 px-6 text-sm text-slate-500">
+                      <td className="py-4 px-6 text-sm text-gray-500">
                         {new Date(u.createdAt).toLocaleDateString('es-ES')}
                       </td>
                       <td className="py-4 px-6">
@@ -209,11 +209,11 @@ export default function UsersPage() {
                           </button>
                           {deleteConfirm === u.id ? (
                             <div className="flex gap-1">
-                              <button onClick={() => handleDelete(u.id)} className="btn-ghost text-xs py-1.5 px-2 text-red-400 hover:bg-red-500/10">Confirmar</button>
+                              <button onClick={() => handleDelete(u.id)} className="btn-ghost text-xs py-1.5 px-2 text-red-600 hover:bg-red-50">Confirmar</button>
                               <button onClick={() => setDeleteConfirm(null)} className="btn-ghost text-xs py-1.5 px-2">Cancelar</button>
                             </div>
                           ) : (
-                            <button onClick={() => setDeleteConfirm(u.id)} className="btn-ghost text-xs py-1.5 px-3 text-red-400 hover:bg-red-500/10">
+                            <button onClick={() => setDeleteConfirm(u.id)} className="btn-ghost text-xs py-1.5 px-3 text-red-600 hover:bg-red-50">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
@@ -230,10 +230,10 @@ export default function UsersPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm fade-in">
           <div className="card-glass w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-white">{editUser ? 'Editar Usuario' : 'Nuevo Usuario'}</h3>
+              <h3 className="text-lg font-bold text-gray-900">{editUser ? 'Editar Usuario' : 'Nuevo Usuario'}</h3>
               <button onClick={resetForm} className="btn-ghost p-2"><X className="w-4 h-4" /></button>
             </div>
             <div className="space-y-4">
@@ -258,8 +258,8 @@ export default function UsersPage() {
                       onClick={() => setFormRole(r)}
                       className={`flex-1 py-2.5 rounded-xl text-xs font-semibold transition-all border ${
                         formRole === r
-                          ? 'bg-brand-600 text-white border-brand-500 shadow-lg shadow-brand-600/25'
-                          : 'bg-slate-800/50 text-slate-400 border-slate-700 hover:border-slate-600'
+                          ? 'bg-brand-600 text-gray-900 border-brand-500 shadow-lg shadow-brand-600/25'
+                          : 'bg-gray-100 text-gray-500 border-gray-300 hover:border-gray-300'
                       }`}
                     >
                       {r}

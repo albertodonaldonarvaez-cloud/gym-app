@@ -26,7 +26,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden"
-         style={{ background: 'radial-gradient(ellipse at 20% 50%, rgba(61,110,255,0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.06) 0%, transparent 60%), #080d1a' }}>
+         style={{ background: 'radial-gradient(ellipse at 20% 50%, rgba(0,122,255,0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.06) 0%, transparent 60%), #F8FAFC' }}>
 
       {/* Decorative blobs */}
       <div className="absolute top-0 left-0 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none"
@@ -39,10 +39,10 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 glow-brand"
                style={{ background: 'linear-gradient(135deg, #3d6eff 0%, #8b5cf6 100%)' }}>
-            <Dumbbell className="w-8 h-8 text-white" />
+            <Dumbbell className="w-8 h-8 text-gray-900" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-1">GymAura</h1>
-          <p className="text-slate-400 text-sm">Panel de Administración</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-1">GymAura</h1>
+          <p className="text-gray-500 text-sm">Panel de Administración</p>
         </div>
 
         {/* Card */}
@@ -78,7 +78,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShow(!show)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -86,7 +86,7 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 {error}
               </div>
@@ -106,12 +106,12 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="text-center text-xs text-slate-600 mt-5">
-            Solo usuarios con rol <span className="text-brand-400 font-semibold">ADMIN</span> o <span className="text-violet-400 font-semibold">COACH</span> pueden acceder
+          <p className="text-center text-xs text-gray-500 mt-5">
+            Solo usuarios con rol <span className="text-blue-600 font-semibold">ADMIN</span> o <span className="text-violet-600 font-semibold">COACH</span> pueden acceder
           </p>
         </div>
 
-        <p className="text-center text-xs text-slate-700 mt-6">
+        <p className="text-center text-xs text-gray-400 mt-6">
           GymAura v2.0 — Plataforma de entrenamiento personalizado
         </p>
       </div>
