@@ -315,11 +315,11 @@ fun RoutineBuilderModal(
             loading = true
             allExercises = ServerRepository.getExercises()
             val existingRoutine = ServerRepository.getWeeklyRoutine(client.id)
-            routineTitle = existingRoutine.title
+            routineTitle = existingRoutine?.title ?: "Rutina Semanal de ${client.name.split(" ").first()}"
 
             val schedMap = mutableMapOf<String, DaySchedule>()
             daysOfWeek.forEach { day ->
-                schedMap[day] = existingRoutine.schedule[day] ?: DaySchedule(day, "Sin asignar", emptyList())
+                schedMap[day] = existingRoutine?.schedule?.get(day) ?: DaySchedule(day, "Sin asignar", emptyList())
             }
             currentSchedule = schedMap
             loading = false

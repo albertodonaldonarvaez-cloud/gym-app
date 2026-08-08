@@ -181,8 +181,7 @@ fun ClientDashboardScreen(
             // Workout start/stop button
             GlassButton(
                 text = if (activeWorkoutMode) "Finalizar" else "Iniciar",
-                icon = if (activeWorkoutMode) Icons.Default.Stop else Icons.Default.PlayArrow,
-                color = if (activeWorkoutMode) AppleRed else AppleEmerald,
+                gradientColors = if (activeWorkoutMode) listOf(AppleRose, AppleOrange) else listOf(AppleEmerald, AppleTeal),
                 onClick = { activeWorkoutMode = !activeWorkoutMode }
             )
         }
