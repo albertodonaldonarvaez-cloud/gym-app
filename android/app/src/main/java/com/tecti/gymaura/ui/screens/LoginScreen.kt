@@ -71,7 +71,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 color = TextPrimary
             )
             Text(
-                text = "Login to continue",
+                text = "Inicia sesión para continuar",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 color = TextSecondary
@@ -86,7 +86,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     serverUrl = it
                     ServerRepository.setBaseUrl(it)
                 },
-                label = { Text("Server URL") },
+                label = { Text("URL del Servidor") },
                 leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.outlinedTextFieldColors(
@@ -104,15 +104,15 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AppleBlue)
                 } else {
                     Text(
-                        text = serverTestMessage ?: "Test Connection",
-                        color = if (serverTestMessage?.contains("Success") == true) AppleEmerald else AppleBlue,
+                        text = serverTestMessage ?: "Probar Conexión",
+                        color = if (serverTestMessage?.contains("Exitosa") == true) AppleEmerald else AppleBlue,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable {
                             isServerTestLoading = true
                             scope.launch {
                                 val success = ServerRepository.testConnection()
-                                serverTestMessage = if (success) "Connection Successful" else "Connection Failed"
+                                serverTestMessage = if (success) "✅ Conexión Exitosa" else "❌ Sin conexión — revisa la URL"
                                 isServerTestLoading = false
                             }
                         }
@@ -126,7 +126,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
+                label = { Text("Correo Electrónico") },
                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.outlinedTextFieldColors(
@@ -143,12 +143,12 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
+                label = { Text("Contraseña") },
                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                 trailingIcon = {
                     val icon = if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility
                     IconButton(onClick = { showPassword = !showPassword }) {
-                        Icon(icon, contentDescription = "Toggle Password")
+                        Icon(icon, contentDescription = "Mostrar contraseña")
                     }
                 },
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
@@ -181,12 +181,18 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     isLoading = true
                     errorMessage = null
                     scope.launch {
+                        val success = ServerRepository.testConnection()
+                        if (!success) {
+                            isLoading = false
+                            errorMessage = "❌ Sin conexión al servidor. Verifica la URL e intenta de nuevo."
+                            return@launch
+                        }
                         val response = ServerRepository.login(email.trim(), password)
                         isLoading = false
                         if (response != null) {
                             onLoginSuccess()
                         } else {
-                            errorMessage = "Login failed. Please check your credentials."
+                            errorMessage = "❌ Credenciales incorrectas. Verifica tu correo y contraseña."
                         }
                     }
                 },
@@ -200,7 +206,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
                 } else {
-                    Text("Login", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Iniciar Sesión", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
         }
