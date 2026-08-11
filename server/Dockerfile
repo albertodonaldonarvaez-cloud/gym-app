@@ -1,6 +1,9 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache openssl
+# System deps: openssl for Prisma, python3+yt-dlp for video downloads, ffmpeg for mp4 conversion
+RUN apk add --no-cache openssl python3 py3-pip ffmpeg curl && \
+    pip3 install --break-system-packages yt-dlp && \
+    mkdir -p /app/uploads/exercises
 
 WORKDIR /app
 

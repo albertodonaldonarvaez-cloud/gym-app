@@ -30,6 +30,9 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://gymaura:GymAuraDB2025!@gymaura-db:5432/gymaura
       - JWT_SECRET=gymaura-jwt-secret-ultra-secure-2025
+      - SERVER_URL=https://gym-app.tecti-cloud.com
+    volumes:
+      - gymaura_uploads:/app/uploads
     depends_on:
       gymaura-db:
         condition: service_healthy
@@ -58,4 +61,5 @@ services:
 
 volumes:
   gymaura_pgdata:
+  gymaura_uploads:
 

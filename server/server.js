@@ -732,6 +732,177 @@ app.post('/api/v1/coach/templates/:id/assign', authMiddleware, coachOnly, async 
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
+// ─── WARMUP SESSIONS ──────────────────────────────────────────────────────────
+
+// Start warmup
+app.post('/api/v1/warmup/start', authMiddleware, async (req, res) => {
+  try {
+    const { startedAt } = req.body;
+    const warmup = await prisma.warmupSession.create({
+      data: {
+        athleteId: req.user.id,
+        startedAt: startedAt ? new Date(startedAt) : new Date(),
+      }
+    });
+    res.json({ id: warmup.id, startedAt: warmup.startedAt });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Finish warmup
+app.post('/api/v1/warmup/finish', authMiddleware, async (req, res) => {
+  try {
+    const { warmupId, durationSec, notes, finishedAt } = req.body;
+    const warmup = await prisma.warmupSession.findUnique({ where: { id: warmupId } });
+    if (!warmup || warmup.athleteId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+    const updated = await prisma.warmupSession.update({
+      where: { id: warmupId },
+      data: {
+        durationSec: durationSec || 0,
+        notes: notes || '',
+        finishedAt: finishedAt ? new Date(finishedAt) : new Date(),
+        isSynced: true
+      }
+    });
+    res.json({ ok: true, id: updated.id, durationSec: updated.durationSec });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Get warmup history (last 30)
+app.get('/api/v1/warmup/history', authMiddleware, async (req, res) => {
+  try {
+    const sessions = await prisma.warmupSession.findMany({
+      where: { athleteId: req.user.id },
+      orderBy: { startedAt: 'desc' },
+      take: 30
+    });
+    res.json(sessions.map(w => ({
+      id: w.id,
+      startedAt: w.startedAt,
+      finishedAt: w.finishedAt,
+      durationSec: w.durationSec,
+      notes: w.notes
+    })));
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── WORKOUT SESSION TRACKING ─────────────────────────────────────────────────
+
+// Save full workout session (foreground service final sync)
+app.post('/api/v1/workouts/session', authMiddleware, async (req, res) => {
+  try {
+    const { sessionId, dayName, startedAt, finishedAt, durationSeconds } = req.body;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
+
+    // Upsert by sessionId to prevent duplicate sessions from retry sync
+    const existing = await prisma.workoutLog.findFirst({ where: { sessionId } });
+    let log;
+    if (existing) {
+      log = await prisma.workoutLog.update({
+        where: { id: existing.id },
+        data: {
+          finishedAt: finishedAt ? new Date(finishedAt) : undefined,
+          durationSeconds: durationSeconds || existing.durationSeconds,
+        }
+      });
+    } else {
+      log = await prisma.workoutLog.create({
+        data: {
+          athleteId: req.user.id,
+          sessionId,
+          dayName: dayName || '',
+          startedAt: startedAt ? new Date(startedAt) : new Date(),
+          finishedAt: finishedAt ? new Date(finishedAt) : null,
+          durationSeconds: durationSeconds || null,
+          source: 'app_session'
+        }
+      });
+    }
+    res.json({ ok: true, workoutLogId: log.id, sessionId: log.sessionId });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── CUSTOM EXERCISES (with video URL / yt-dlp) ───────────────────────────────
+
+const { execFile } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+// Upload directory for exercise videos
+const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// Serve uploaded videos as static files
+app.use('/uploads', require('express').static(path.join(__dirname, 'uploads')));
+
+// Create custom exercise (coach only). videoUrl is the TikTok/YT/direct URL.
+app.post('/api/v1/coach/exercises/custom', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const { name, muscleGroup, category, equipment, instructions, videoUrl } = req.body;
+    if (!name || !muscleGroup) return res.status(400).json({ error: 'name and muscleGroup required' });
+
+    // Create exercise first (without video) so we have the ID
+    const exercise = await prisma.exercise.create({
+      data: {
+        name,
+        muscleGroup,
+        category: category || 'General',
+        equipment: equipment || 'Libre',
+        instructions: instructions || '',
+        isCustom: true,
+        coachId: req.user.id,
+        videoUrl: videoUrl || null
+      }
+    });
+
+    // If video URL provided, attempt yt-dlp download in background
+    if (videoUrl) {
+      const outputPath = path.join(UPLOADS_DIR, `${exercise.id}.mp4`);
+      const serverBase = process.env.SERVER_URL || 'https://gym-app.tecti-cloud.com';
+
+      // Try yt-dlp (installed in Docker), fall back to direct URL
+      const ytdlp = execFile('yt-dlp', [
+        '-f', 'mp4/best[ext=mp4]/best',
+        '-o', outputPath,
+        '--no-playlist',
+        '--max-filesize', '50m',
+        videoUrl
+      ], { timeout: 120000 }, async (err) => {
+        if (!err && fs.existsSync(outputPath)) {
+          const hostedUrl = `${serverBase}/uploads/exercises/${exercise.id}.mp4`;
+          await prisma.exercise.update({
+            where: { id: exercise.id },
+            data: { mediaUrl: hostedUrl, videoUrl }
+          }).catch(() => {});
+          console.log(`✅ Video downloaded for exercise ${exercise.id}`);
+        } else {
+          console.log(`⚠️ yt-dlp failed for ${exercise.id}, using direct URL: ${err?.message}`);
+          // Keep the original videoUrl so the app can play directly
+        }
+      });
+    }
+
+    res.json({
+      id: exercise.id,
+      name: exercise.name,
+      muscleGroup: exercise.muscleGroup,
+      videoUrl: exercise.videoUrl,
+      isCustom: true,
+      status: videoUrl ? 'processing' : 'ready'
+    });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Get custom exercises for coach
+app.get('/api/v1/coach/exercises/custom', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const exercises = await prisma.exercise.findMany({
+      where: { coachId: req.user.id, isCustom: true },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(exercises);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
 // Start Server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 GymAura Server v2 ejecutándose en http://0.0.0.0:${PORT}`);

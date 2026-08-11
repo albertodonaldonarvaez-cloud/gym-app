@@ -34,6 +34,7 @@ model User {
   routineTemplates  RoutineTemplate[] @relation("CoachTemplates")
   workoutLogs   WorkoutLog[]
   setLogs       SetLog[]
+  warmupSessions WarmupSession[] @relation("AthleteWarmups")
 
   @@map("users")
 }
@@ -49,6 +50,9 @@ model Exercise {
   defaultReps   Int      @default(12) @map("default_reps")
   mediaFilename String?  @map("media_filename")
   mediaUrl      String?  @map("media_url")
+  videoUrl      String?  @map("video_url")
+  isCustom      Boolean  @default(false) @map("is_custom")
+  coachId       String?  @map("coach_id")
   hashMd5       String?  @map("hash_md5")
   createdAt     DateTime @default(now()) @map("created_at")
 
@@ -76,7 +80,11 @@ model RoutinePlan {
 model WorkoutLog {
   id              String   @id @default(cuid())
   athleteId       String   @map("athlete_id")
+  sessionId       String?  @map("session_id")      // UUID from device for dedup
+  dayName         String   @default("") @map("day_name")  // e.g. "Lunes"
   date            DateTime @default(now())
+  startedAt       DateTime? @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
   durationSeconds Int?     @map("duration_seconds")
   caloriesBurned  Float?   @map("calories_burned")
   avgHr           Int?     @map("avg_hr")
@@ -87,6 +95,7 @@ model WorkoutLog {
   setLogs         SetLog[]
 
   @@index([athleteId, date])
+  @@index([sessionId])
   @@map("workout_logs")
 }
 
@@ -96,10 +105,14 @@ model SetLog {
   workoutLogId String   @map("workout_log_id")
   athleteId    String   @map("athlete_id")
   exerciseId   String   @map("exercise_id")
+  sessionId    String?  @map("session_id")
+  dayName      String   @default("") @map("day_name")
   weightKg     Float    @default(0) @map("weight_kg")
   reps         Int      @default(0)
   rpe          Float?   @default(0)
   setNumber    Int      @default(1) @map("set_number")
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
   notes        String   @default("")
   createdAt    DateTime @default(now()) @map("created_at")
 
@@ -108,6 +121,7 @@ model SetLog {
   exercise     Exercise   @relation(fields: [exerciseId], references: [id])
 
   @@index([athleteId, exerciseId])
+  @@index([sessionId])
   @@map("set_logs")
 }
 
@@ -123,4 +137,20 @@ model RoutineTemplate {
   coach       User     @relation("CoachTemplates", fields: [coachId], references: [id])
 
   @@map("routine_templates")
+}
+
+model WarmupSession {
+  id          String   @id @default(cuid())
+  athleteId   String   @map("athlete_id")
+  startedAt   DateTime @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  durationSec Int      @default(0) @map("duration_sec")
+  notes       String   @default("")
+  isSynced    Boolean  @default(false) @map("is_synced")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  athlete     User     @relation("AthleteWarmups", fields: [athleteId], references: [id])
+
+  @@index([athleteId, startedAt])
+  @@map("warmup_sessions")
 }
