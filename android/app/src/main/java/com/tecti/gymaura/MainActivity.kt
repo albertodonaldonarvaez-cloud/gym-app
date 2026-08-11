@@ -14,9 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sports
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -87,18 +86,19 @@ fun MainAppScreen(onLogout: () -> Unit) {
     var activeTab by remember { mutableStateOf(NavigationTab.DASHBOARD) }
     
     val savedRoleStr = ServerRepository.getUserRole() ?: "CLIENT"
-    val savedRole = when (savedRoleStr) {
+    val currentRole = when (savedRoleStr) {
         "COACH" -> UserRole.COACH
         "ADMIN" -> UserRole.ADMIN
         else -> UserRole.CLIENT
     }
-    var currentRole by remember { mutableStateOf(savedRole) }
     
     var showServerConfigDialog by remember { mutableStateOf(false) }
 
     val isConnected by ServerRepository.isServerConnected.collectAsState()
     val currentUrl by ServerRepository.currentUrlState.collectAsState()
     val scope = rememberCoroutineScope()
+    
+    val userName = ServerRepository.getUserName() ?: "Usuario"
 
     LaunchedEffect(Unit) {
         scope.launch {
@@ -112,14 +112,14 @@ fun MainAppScreen(onLogout: () -> Unit) {
             topBar = {
                 GlassTopAppBar(
                     currentRole = currentRole,
-                    onRoleChange = { currentRole = it },
                     isConnected = isConnected,
-                    onServerClick = { showServerConfigDialog = true }
+                    userName = userName
                 )
             },
             bottomBar = {
                 GlassBottomNavigationBar(
                     activeTab = activeTab,
+                    currentRole = currentRole,
                     onTabSelected = { activeTab = it }
                 )
             }
@@ -151,6 +151,8 @@ fun MainAppScreen(onLogout: () -> Unit) {
                             ServerSettingsView(
                                 isConnected = isConnected,
                                 currentUrl = currentUrl,
+                                userName = userName,
+                                currentRole = currentRole,
                                 onOpenDialog = { showServerConfigDialog = true },
                                 onLogout = onLogout
                             )
@@ -169,15 +171,14 @@ fun MainAppScreen(onLogout: () -> Unit) {
 @Composable
 fun GlassTopAppBar(
     currentRole: UserRole,
-    onRoleChange: (UserRole) -> Unit,
     isConnected: Boolean,
-    onServerClick: () -> Unit
+    userName: String
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 20.dp, vertical = 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -201,109 +202,45 @@ fun GlassTopAppBar(
                     )
                 }
                 Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "GymAura",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "Liquid Glass Edition",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = AppleTeal
-                    )
-                }
+                Text(
+                    text = "GymAura",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextPrimary
+                )
             }
 
-            // Server Indicator Pill Button
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(GlassSurfaceWhite)
-                    .border(1.dp, if (isConnected) AppleEmerald.copy(alpha = 0.4f) else AppleOrange.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
-                    .clickable { onServerClick() }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
+            // User info and role badge
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = userName,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    
+                    val (roleText, roleColor) = when (currentRole) {
+                        UserRole.CLIENT -> "Atleta" to AppleBlue
+                        UserRole.COACH -> "Coach" to AppleIndigo
+                        UserRole.ADMIN -> "Admin" to AppleOrange
+                    }
+                    
+                    Text(
+                        text = roleText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = roleColor
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                // Connection dot
                 Box(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
                         .background(if (isConnected) AppleEmerald else AppleOrange)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (isConnected) "API Conectada" else "Servidor Local",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isConnected) AppleEmerald else AppleOrange
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Role Segment Switcher (Modo Cliente vs Modo Coach)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(GlassSurfaceWhite)
-                .border(1.dp, GlassBorderWhite, RoundedCornerShape(20.dp))
-                .padding(4.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (currentRole == UserRole.CLIENT) AppleBlue else Color.Transparent)
-                    .clickable { onRoleChange(UserRole.CLIENT) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        tint = if (currentRole == UserRole.CLIENT) Color.White else TextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Modo Cliente",
-                        color = if (currentRole == UserRole.CLIENT) Color.White else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (currentRole == UserRole.COACH) AppleIndigo else Color.Transparent)
-                    .clickable { onRoleChange(UserRole.COACH) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Sports,
-                        contentDescription = null,
-                        tint = if (currentRole == UserRole.COACH) Color.White else TextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Modo Coach",
-                        color = if (currentRole == UserRole.COACH) Color.White else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
         }
     }
@@ -312,13 +249,14 @@ fun GlassTopAppBar(
 @Composable
 fun GlassBottomNavigationBar(
     activeTab: NavigationTab,
+    currentRole: UserRole,
     onTabSelected: (NavigationTab) -> Unit
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Row(
             modifier = Modifier
@@ -326,13 +264,13 @@ fun GlassBottomNavigationBar(
                 .clip(RoundedCornerShape(30.dp))
                 .background(GlassSurfaceWhite)
                 .border(1.5.dp, GlassBorderWhite, RoundedCornerShape(30.dp))
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             NavItem(
                 icon = Icons.Default.Dashboard,
-                label = "Mi Plan",
+                label = if (currentRole == UserRole.CLIENT) "Mi Entrenamiento" else "Mis Clientes",
                 isSelected = activeTab == NavigationTab.DASHBOARD,
                 onClick = { onTabSelected(NavigationTab.DASHBOARD) }
             )
@@ -368,9 +306,9 @@ fun NavItem(
             .clip(RoundedCornerShape(20.dp))
             .background(bg)
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
-        Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
+        Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
         if (isSelected) {
             Spacer(modifier = Modifier.width(6.dp))
             Text(text = label, color = AppleBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -382,63 +320,143 @@ fun NavItem(
 fun ServerSettingsView(
     isConnected: Boolean,
     currentUrl: String,
+    userName: String,
+    currentRole: UserRole,
     onOpenDialog: () -> Unit,
     onLogout: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val email = ServerRepository.getUserEmail() ?: ""
+    val roleText = when (currentRole) {
+        UserRole.CLIENT -> "Atleta"
+        UserRole.COACH -> "Coach"
+        UserRole.ADMIN -> "Admin"
+    }
+    val roleColor = when (currentRole) {
+        UserRole.CLIENT -> AppleBlue
+        UserRole.COACH -> AppleIndigo
+        UserRole.ADMIN -> AppleOrange
+    }
     
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        // User Info Card Style
         Box(
             modifier = Modifier
-                .size(72.dp)
-                .clip(CircleShape)
-                .background(if (isConnected) AppleEmerald.copy(alpha = 0.15f) else AppleOrange.copy(alpha = 0.15f)),
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(GlassSurfaceWhite)
+                .border(1.dp, GlassBorderWhite, RoundedCornerShape(24.dp))
+                .padding(24.dp),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Cloud,
-                contentDescription = null,
-                tint = if (isConnected) AppleEmerald else AppleOrange,
-                modifier = Modifier.size(36.dp)
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(AppleBlue.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = userName.firstOrNull()?.toString()?.uppercase() ?: "U",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppleBlue
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = userName,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                
+                if (email.isNotEmpty()) {
+                    Text(
+                        text = email,
+                        fontSize = 14.sp,
+                        color = TextSecondary
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(roleColor.copy(alpha = 0.1f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = roleText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = roleColor
+                    )
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Server Status Info
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(if (isConnected) AppleEmerald.copy(alpha = 0.15f) else AppleOrange.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Cloud,
+                    contentDescription = null,
+                    tint = if (isConnected) AppleEmerald else AppleOrange,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = if (isConnected) "Servidor Conectado" else "Modo de Prueba Local",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = currentUrl,
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = if (isConnected) "Servidor Conectado" else "Modo de Prueba Local Activo",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-        )
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Text(
-            text = "URL configurada: $currentUrl",
-            fontSize = 13.sp,
-            color = TextSecondary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         Button(
             onClick = onOpenDialog,
             shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth(0.8f).height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AppleBlue)
         ) {
             Icon(imageVector = Icons.Default.Settings, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Cambiar Dirección del Servidor", fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Configurar Servidor", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
         
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         
         Button(
             onClick = {
@@ -448,11 +466,12 @@ fun ServerSettingsView(
                 }
             },
             shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AppleOrange)
+            modifier = Modifier.fillMaxWidth(0.8f).height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)) // Rose/Red color
         ) {
-            Icon(imageVector = Icons.Default.Person, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Cerrar Sesión", fontWeight = FontWeight.Bold)
+            Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = Color.White)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Cerrar Sesión", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
         }
     }
 }

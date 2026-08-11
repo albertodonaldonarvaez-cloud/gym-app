@@ -71,6 +71,7 @@ object ServerRepository {
     fun getUserId(): String? = _userId
     fun getUserRole(): String? = _userRole
     fun getUserName(): String? = _userName
+    fun getUserEmail(): String? = null
     fun isLoggedIn(): Boolean = !_token.isNullOrBlank()
 
     suspend fun getCoachInfo(): Coach? {
