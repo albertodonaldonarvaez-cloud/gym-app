@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="com.huawei.android.health.HEALTHKIT_HEARTRATE_READ" />
     <uses-permission android:name="com.huawei.android.health.HEALTHKIT_CALORIES_READ" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -18,6 +21,10 @@
         android:theme="@style/Theme.GymAura"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+        <service
+            android:name=".service.WorkoutForegroundService"
+            android:foregroundServiceType="health"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

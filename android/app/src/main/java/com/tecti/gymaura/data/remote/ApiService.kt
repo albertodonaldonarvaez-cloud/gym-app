@@ -140,4 +140,40 @@ interface ApiService {
         @Path("id") templateId: String,
         @Body body: AssignTemplateRequest
     ): Response<AssignTemplateResponse>
+    // ─── WARMUP ─────────────────────────────────────────────────────────────────────
+    @POST("api/v1/warmup/start")
+    suspend fun startWarmup(
+        @Header("Authorization") token: String,
+        @Body body: Map<String, String>
+    ): Response<Map<String, Any>>
+
+    @POST("api/v1/warmup/finish")
+    suspend fun finishWarmup(
+        @Header("Authorization") token: String,
+        @Body body: Map<String, Any>
+    ): Response<Map<String, Any>>
+
+    @GET("api/v1/warmup/history")
+    suspend fun getWarmupHistory(
+        @Header("Authorization") token: String
+    ): Response<List<Map<String, Any>>>
+
+    // ─── WORKOUT SESSION ─────────────────────────────────────────────────────────────
+    @POST("api/v1/workouts/session")
+    suspend fun saveWorkoutSession(
+        @Header("Authorization") token: String,
+        @Body body: Map<String, Any>
+    ): Response<Map<String, Any>>
+
+    // ─── CUSTOM EXERCISES ────────────────────────────────────────────────────────────
+    @POST("api/v1/coach/exercises/custom")
+    suspend fun createCustomExercise(
+        @Header("Authorization") token: String,
+        @Body body: Map<String, String>
+    ): Response<Map<String, Any>>
+
+    @GET("api/v1/coach/exercises/custom")
+    suspend fun getCustomExercises(
+        @Header("Authorization") token: String
+    ): Response<List<Map<String, Any>>>
 }

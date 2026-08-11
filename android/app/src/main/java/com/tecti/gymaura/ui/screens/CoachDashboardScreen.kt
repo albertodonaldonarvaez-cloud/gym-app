@@ -11,13 +11,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sports
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.verticalScroll
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.tecti.gymaura.data.model.*
@@ -326,6 +323,7 @@ fun RoutineBuilderModal(
     var currentSchedule by remember { mutableStateOf<MutableMap<String, DaySchedule>>(mutableMapOf()) }
     var allExercises by remember { mutableStateOf<List<Exercise>>(emptyList()) }
     var showSelectExerciseModal by remember { mutableStateOf(false) }
+    var previewExercise by remember { mutableStateOf<Exercise?>(null) }
     var loading by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
 
@@ -624,14 +622,19 @@ fun RoutineBuilderModal(
                             }
 
                             // Add indicator
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(AppleBlue.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(16.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { previewExercise = ex }) {
+                                    Icon(Icons.Default.Info, contentDescription = "Info", tint = AppleBlue)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(AppleBlue.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
                     }
@@ -643,6 +646,21 @@ fun RoutineBuilderModal(
                 }
             }
         }
+    }
+
+    previewExercise?.let { ex ->
+        ExerciseQuickPreviewDialog(
+            exercise = ex,
+            onAdd = {
+                val newExList = currentDaySchedule.exercises + RoutineExercise(ex.id, ex.defaultSets, ex.defaultReps, 0.0)
+                val updated = currentSchedule.toMutableMap()
+                updated[selectedDay] = currentDaySchedule.copy(exercises = newExList)
+                currentSchedule = updated
+                showSelectExerciseModal = false
+                previewExercise = null
+            },
+            onDismiss = { previewExercise = null }
+        )
     }
 }
 
@@ -802,6 +820,7 @@ fun TemplateBuilderModal(
     var currentSchedule by remember { mutableStateOf<MutableMap<String, DaySchedule>>(mutableMapOf()) }
     var allExercises by remember { mutableStateOf<List<Exercise>>(emptyList()) }
     var showSelectExerciseModal by remember { mutableStateOf(false) }
+    var previewExercise by remember { mutableStateOf<Exercise?>(null) }
     var loading by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
 
@@ -1070,8 +1089,13 @@ fun TemplateBuilderModal(
                                     GlassBadge(text = ex.targetMuscle, color = AppleTeal)
                                 }
                             }
-                            Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(AppleBlue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Add, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(16.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { previewExercise = ex }) {
+                                    Icon(Icons.Default.Info, contentDescription = "Info", tint = AppleBlue)
+                                }
+                                Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(AppleBlue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Add, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
                     }
@@ -1083,6 +1107,21 @@ fun TemplateBuilderModal(
                 }
             }
         }
+    }
+
+    previewExercise?.let { ex ->
+        ExerciseQuickPreviewDialog(
+            exercise = ex,
+            onAdd = {
+                val newExList = currentDaySchedule.exercises + RoutineExercise(ex.id, ex.defaultSets, ex.defaultReps, 0.0)
+                val updated = currentSchedule.toMutableMap()
+                updated[selectedDay] = currentDaySchedule.copy(exercises = newExList)
+                currentSchedule = updated
+                showSelectExerciseModal = false
+                previewExercise = null
+            },
+            onDismiss = { previewExercise = null }
+        )
     }
 }
 
@@ -1184,6 +1223,70 @@ fun AssignTemplateModal(
                             }
                         }
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExerciseQuickPreviewDialog(exercise: Exercise, onAdd: () -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = GlassSurfaceWhite),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column {
+                // GIF/media at top
+                if (!exercise.mediaUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(ctx).data(exercise.mediaUrl).crossfade(true).build(),
+                        imageLoader = buildCoilLoader(ctx),
+                        contentDescription = exercise.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxWidth().height(200.dp)
+                            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(140.dp)
+                            .background(AppleBlue.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.FitnessCenter, contentDescription = null,
+                            tint = AppleBlue, modifier = Modifier.size(60.dp))
+                    }
+                }
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(exercise.name, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GlassBadge(text = exercise.targetMuscle, color = AppleBlue)
+                        GlassBadge(text = exercise.category, color = AppleTeal)
+                        GlassBadge(text = exercise.equipment, color = AppleIndigo)
+                    }
+                    if (exercise.instructions.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Instrucciones", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(exercise.instructions, fontSize = 13.sp, color = TextSecondary,
+                            modifier = Modifier.heightIn(max = 150.dp)
+                                .verticalScroll(androidx.compose.foundation.rememberScrollState()))
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
+                            Text("Cerrar")
+                        }
+                        Button(onClick = { onAdd(); onDismiss() }, modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppleBlue)
+                        ) {
+                            Text("+ Añadir", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }

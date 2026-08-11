@@ -36,6 +36,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import android.content.Intent
+import androidx.compose.foundation.BorderStroke
+import com.tecti.gymaura.data.local.WarmupSessionEntity
+import com.tecti.gymaura.service.WorkoutForegroundService
 
 // ─── COIL IMAGE LOADER WITH GIF SUPPORT ───────────────────────────────────────
 fun buildCoilLoader(context: Context): ImageLoader {
@@ -45,6 +49,12 @@ fun buildCoilLoader(context: Context): ImageLoader {
             else add(GifDecoder.Factory())
         }
         .build()
+}
+
+private fun formatWarmupTime(seconds: Int): String {
+    val m = seconds / 60
+    val s = seconds % 60
+    return "%02d:%02d".format(m, s)
 }
 
 @Composable
@@ -78,6 +88,37 @@ fun ClientDashboardScreen(
     var elapsedSeconds by remember { mutableStateOf(0) }
     var restTimerSeconds by remember { mutableStateOf(0) }
     var isRestTimerRunning by remember { mutableStateOf(false) }
+
+    // State for warmup
+    var showWarmupSheet by remember { mutableStateOf(false) }
+    var warmupId by remember { mutableStateOf<String?>(null) }
+    var isWarmingUp by remember { mutableStateOf(false) }
+    var warmupStartTime by remember { mutableStateOf(0L) }
+    var warmupElapsedSec by remember { mutableStateOf(0) }
+    var warmupHistory by remember { mutableStateOf<List<WarmupSessionEntity>>(emptyList()) }
+    
+    // State for workout session
+    var isWorkoutActive by remember { mutableStateOf(WorkoutForegroundService.isRunning) }
+    var workoutElapsed by remember { mutableStateOf(0) }
+
+    // Warmup timer ticker
+    LaunchedEffect(isWarmingUp) {
+        if (isWarmingUp) {
+            while (isWarmingUp) {
+                delay(1000)
+                warmupElapsedSec = ((System.currentTimeMillis() - warmupStartTime) / 1000).toInt()
+            }
+        }
+    }
+    
+    LaunchedEffect(isWorkoutActive) {
+        if (isWorkoutActive) {
+            while (isWorkoutActive) {
+                delay(1000)
+                workoutElapsed = WorkoutForegroundService.elapsedSeconds
+            }
+        }
+    }
 
     // Workout timer
     LaunchedEffect(activeWorkoutMode) {
@@ -240,6 +281,153 @@ fun ClientDashboardScreen(
         } else {
             val daySchedule = weeklyRoutine?.schedule?.get(selectedDay)
             val routineExercises = daySchedule?.exercises ?: emptyList()
+
+            // Warmup Quick-Access Card
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isWarmingUp) Color(0xFFFFF3CD) else GlassSurfaceWhite
+                ),
+                border = BorderStroke(1.dp, if (isWarmingUp) Color(0xFFFF9800) else GlassBorderWhite)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier.size(44.dp).clip(CircleShape)
+                                .background(if (isWarmingUp) Color(0xFFFF9800).copy(alpha=0.15f) else AppleOrange.copy(alpha=0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🔥", fontSize = 20.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                if (isWarmingUp) "Calentando..." else "Calentamiento",
+                                fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary
+                            )
+                            Text(
+                                if (isWarmingUp) formatWarmupTime(warmupElapsedSec) else "Toca para iniciar",
+                                fontSize = 13.sp,
+                                color = if (isWarmingUp) Color(0xFFFF9800) else TextSecondary,
+                                fontWeight = if (isWarmingUp) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            if (isWarmingUp) {
+                                showWarmupSheet = true // open to finish/save
+                            } else {
+                                scope.launch {
+                                    warmupStartTime = System.currentTimeMillis()
+                                    warmupElapsedSec = 0
+                                    isWarmingUp = true
+                                    val id = ServerRepository.startWarmup(warmupStartTime)
+                                    warmupId = id
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isWarmingUp) Color(0xFFFF9800) else AppleOrange
+                        )
+                    ) {
+                        Text(if (isWarmingUp) "Ver / Terminar" else "Iniciar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // Workout Session Card
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isWorkoutActive) Color(0xFFE8F5E9) else GlassSurfaceWhite
+                ),
+                border = BorderStroke(1.dp, if (isWorkoutActive) AppleEmerald else GlassBorderWhite)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier.size(44.dp).clip(CircleShape)
+                                .background(if (isWorkoutActive) AppleEmerald.copy(alpha=0.15f) else AppleBlue.copy(alpha=0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                if (isWorkoutActive) Icons.Default.FitnessCenter else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = if (isWorkoutActive) AppleEmerald else AppleBlue,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                if (isWorkoutActive) "Entrenamiento Activo" else "Listo para entrenar",
+                                fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary
+                            )
+                            if (isWorkoutActive) {
+                                val h = workoutElapsed / 3600
+                                val m = (workoutElapsed % 3600) / 60
+                                val s = workoutElapsed % 60
+                                val timeStr = if (h > 0) "%02d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+                                Text(timeStr, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppleEmerald)
+                            } else {
+                                Text("Toca para comenzar sesión", fontSize = 12.sp, color = TextSecondary)
+                            }
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            if (isWorkoutActive) {
+                                // Stop service
+                                val stopIntent = Intent(context, WorkoutForegroundService::class.java).apply {
+                                    action = WorkoutForegroundService.ACTION_STOP
+                                }
+                                context.startService(stopIntent)
+                                isWorkoutActive = false
+                                scope.launch {
+                                    val sessionId = WorkoutForegroundService.sessionId
+                                    val startTime = WorkoutForegroundService.sessionStartTime
+                                    val duration = WorkoutForegroundService.elapsedSeconds
+                                    ServerRepository.saveWorkoutSession(
+                                        sessionId, WorkoutForegroundService.sessionDayName,
+                                        startTime, System.currentTimeMillis(), duration
+                                    )
+                                }
+                            } else {
+                                // Start service
+                                val todayDay = listOf("Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo")
+                                val dayIdx = (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+                                val dayName = todayDay[dayIdx]
+                                val startIntent = Intent(context, WorkoutForegroundService::class.java).apply {
+                                    action = WorkoutForegroundService.ACTION_START
+                                    putExtra("dayName", dayName)
+                                }
+                                context.startForegroundService(startIntent)
+                                isWorkoutActive = true
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isWorkoutActive) AppleRose else AppleEmerald
+                        )
+                    ) {
+                        Text(if (isWorkoutActive) "Terminar" else "▶ Iniciar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
 
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -405,6 +593,25 @@ fun ClientDashboardScreen(
                 // Trigger background sync
                 SyncWorkoutWorker.scheduleSync(context)
             }
+        )
+    }
+
+    if (showWarmupSheet) {
+        WarmupFinishDialog(
+            durationSec = warmupElapsedSec,
+            onFinish = { notes ->
+                scope.launch {
+                    val id = warmupId ?: ""
+                    ServerRepository.finishWarmup(id, warmupElapsedSec, notes)
+                    isWarmingUp = false
+                    warmupElapsedSec = 0
+                    warmupId = null
+                    showWarmupSheet = false
+                    // Refresh history
+                    warmupHistory = ServerRepository.getWarmupHistory()
+                }
+            },
+            onDismiss = { showWarmupSheet = false }
         )
     }
 }
@@ -642,6 +849,60 @@ fun SetLogModal(
                     Icon(Icons.Default.CheckCircle, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Guardar Serie", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WarmupFinishDialog(
+    durationSec: Int,
+    onFinish: (notes: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var notes by remember { mutableStateOf("") }
+    val minutes = durationSec / 60
+    val seconds = durationSec % 60
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = GlassSurfaceWhite),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("🔥", fontSize = 40.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Calentamiento", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "%02d:%02d".format(minutes, seconds),
+                    fontSize = 36.sp, fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFF9800)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notas (opcional)") },
+                    placeholder = { Text("Ej: Bici estática 10 min") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp)
+                    ) { Text("Seguir") }
+                    Button(
+                        onClick = { onFinish(notes) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800))
+                    ) { Text("Guardar", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
         }

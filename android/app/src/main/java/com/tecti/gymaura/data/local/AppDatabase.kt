@@ -6,12 +6,14 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [SetLogEntity::class],
-    version = 1,
+    entities = [SetLogEntity::class, CachedRoutineEntity::class, WarmupSessionEntity::class],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun setLogDao(): SetLogDao
+    abstract fun cachedRoutineDao(): CachedRoutineDao
+    abstract fun warmupSessionDao(): WarmupSessionDao
 
     companion object {
         @Volatile

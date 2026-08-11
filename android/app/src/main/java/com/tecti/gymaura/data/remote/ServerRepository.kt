@@ -16,6 +16,9 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import com.tecti.gymaura.data.local.AppDatabase
+import com.tecti.gymaura.data.local.CachedRoutineEntity
+import com.tecti.gymaura.data.local.WarmupSessionEntity
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "gymaura_prefs")
 
@@ -292,5 +295,76 @@ object ServerRepository {
             val resp = api().assignTemplate(authHeader(), templateId, AssignTemplateRequest(clientIds))
             if (resp.isSuccessful) resp.body() else null
         } catch (e: Exception) { Log.e(TAG, "assignTemplate error: ${e.message}"); null }
+    }
+    // ─── OFFLINE CACHE ────────────────────────────────────────────────────────────
+    private fun getDb(): AppDatabase = AppDatabase.getDatabase(_appContext!!)
+
+    suspend fun downloadAndCacheRoutine() {
+        try {
+            val routine = getCurrentWeekRoutine() ?: return
+            val json = com.google.gson.Gson().toJson(routine)
+            val athleteId = _userId ?: return
+            getDb().cachedRoutineDao().upsert(
+                com.tecti.gymaura.data.local.CachedRoutineEntity(athleteId = athleteId, routineJson = json)
+            )
+        } catch (e: Exception) { Log.e(TAG, "Cache routine error: ${e.message}") }
+    }
+
+    suspend fun getCachedRoutine(): com.tecti.gymaura.data.model.WeeklyRoutine? {
+        return try {
+            val athleteId = _userId ?: return null
+            val entity = getDb().cachedRoutineDao().getByAthleteId(athleteId) ?: return null
+            com.google.gson.Gson().fromJson(entity.routineJson, com.tecti.gymaura.data.model.WeeklyRoutine::class.java)
+        } catch (e: Exception) { null }
+    }
+
+    // ─── WARMUP ───────────────────────────────────────────────────────────────────
+    suspend fun startWarmup(startedAt: Long): String? {
+        return try {
+            val localId = java.util.UUID.randomUUID().toString()
+            getDb().warmupSessionDao().insert(
+                com.tecti.gymaura.data.local.WarmupSessionEntity(id = localId, startedAt = startedAt)
+            )
+            // Try server sync
+            try {
+                val resp = api().startWarmup(authHeader(), mapOf("startedAt" to java.util.Date(startedAt).toString()))
+                if (resp.isSuccessful) resp.body()?.get("id")?.toString() else localId
+            } catch (_: Exception) { localId }
+        } catch (e: Exception) { Log.e(TAG, "startWarmup: ${e.message}"); null }
+    }
+
+    suspend fun finishWarmup(warmupId: String, durationSec: Int, notes: String) {
+        try {
+            getDb().warmupSessionDao().insert(
+                com.tecti.gymaura.data.local.WarmupSessionEntity(
+                    id = warmupId, durationSec = durationSec, notes = notes,
+                    finishedAt = System.currentTimeMillis(), isSynced = false
+                )
+            )
+            // Try server
+            val body = mapOf("warmupId" to warmupId, "durationSec" to durationSec, "notes" to notes)
+            try { api().finishWarmup(authHeader(), body) } catch (_: Exception) {}
+        } catch (e: Exception) { Log.e(TAG, "finishWarmup: ${e.message}") }
+    }
+
+    suspend fun getWarmupHistory(): List<com.tecti.gymaura.data.local.WarmupSessionEntity> {
+        return try {
+            getDb().warmupSessionDao().getRecent()
+        } catch (e: Exception) { emptyList() }
+    }
+
+    // ─── WORKOUT SESSION ──────────────────────────────────────────────────────────
+    suspend fun saveWorkoutSession(sessionId: String, dayName: String, startedAt: Long, finishedAt: Long, durationSeconds: Int): Boolean {
+        return try {
+            val body = mapOf(
+                "sessionId" to sessionId,
+                "dayName" to dayName,
+                "startedAt" to java.util.Date(startedAt).toString(),
+                "finishedAt" to java.util.Date(finishedAt).toString(),
+                "durationSeconds" to durationSeconds
+            )
+            val resp = api().saveWorkoutSession(authHeader(), body)
+            resp.isSuccessful
+        } catch (e: Exception) { Log.e(TAG, "saveWorkoutSession: ${e.message}"); false }
     }
 }

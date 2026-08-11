@@ -17,5 +17,10 @@ data class SetLogEntity(
     val setNumber: Int = 1,
     val notes: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val isSynced: Boolean = false
+    val isSynced: Boolean = false,
+    val sessionId: String = "",
+    val dayName: String = "",
+    val startedAt: Long = 0L,
+    val completedAt: Long = 0L,
+    val athleteId: String = ""
 )
