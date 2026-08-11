@@ -418,7 +418,12 @@ fun SetLogModal(
     onSaved: (Double, Int, Double, Int) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var weightKg by remember { mutableStateOf("") }
+
+    // Load saved unit preference from SharedPreferences
+    val prefs = context.getSharedPreferences("gymaura_prefs", 0)
+    var useKg by remember { mutableStateOf(prefs.getBoolean("use_kg_unit", true)) }
+
+    var weightInput by remember { mutableStateOf("") }
     var reps by remember { mutableStateOf("") }
     var rpe by remember { mutableStateOf("7") }
     var setNumber by remember { mutableStateOf(1) }
@@ -426,30 +431,48 @@ fun SetLogModal(
     var localLast by remember { mutableStateOf<com.tecti.gymaura.data.local.SetLogEntity?>(null) }
     var loading by remember { mutableStateOf(true) }
 
-    // Load last performance from local DB first, then try server
+    fun kgToDisplay(kg: Double): String {
+        return if (useKg) String.format("%.1f", kg)
+        else String.format("%.1f", kg / 0.453592)
+    }
+
+    fun displayToKg(): Double {
+        val v = weightInput.toDoubleOrNull() ?: 0.0
+        return if (useKg) v else v * 0.453592
+    }
+
+    // Load last performance
     LaunchedEffect(exercise.id) {
         loading = true
-        // Try local Room first (instant)
         val local = dao.getLastSetForExercise(exercise.id)
         localLast = local
         local?.let {
-            weightKg = it.weightKg.toString()
+            weightInput = kgToDisplay(it.weightKg)
             reps = it.reps.toString()
             rpe = it.rpe.toString()
             setNumber = (it.setNumber + 1).coerceAtMost(6)
         }
-        // Try server for most up-to-date
         if (ServerRepository.isLoggedIn()) {
             val serverLast = ServerRepository.getLastPerformance(exercise.id)
             serverLast?.let {
                 lastPerformance = it
                 if (local == null) {
-                    weightKg = it.weightKg.toString()
+                    weightInput = kgToDisplay(it.weightKg)
                     reps = it.reps.toString()
                 }
             }
         }
         loading = false
+    }
+
+    // When unit changes, convert current input value
+    LaunchedEffect(useKg) {
+        val current = weightInput.toDoubleOrNull()
+        if (current != null && current > 0) {
+            weightInput = if (useKg) String.format("%.1f", current * 0.453592)
+            else String.format("%.1f", current / 0.453592)
+        }
+        prefs.edit().putBoolean("use_kg_unit", useKg).apply()
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -477,9 +500,12 @@ fun SetLogModal(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Last performance chip
-                (lastPerformance ?: localLast?.let {
+                val lastToShow = lastPerformance ?: localLast?.let {
                     com.tecti.gymaura.data.model.LastPerformance(it.weightKg, it.reps, it.rpe, "")
-                })?.let { last ->
+                }
+                lastToShow?.let { last ->
+                    val displayWeight = if (useKg) "${String.format("%.1f", last.weightKg)} kg"
+                                       else "${String.format("%.1f", last.weightKg / 0.453592)} lb"
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -490,7 +516,7 @@ fun SetLogModal(
                         Icon(Icons.Default.History, contentDescription = null, tint = AppleTeal, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Última vez: ${last.weightKg}kg × ${last.reps} reps · RPE ${last.rpe ?: "-"}",
+                            text = "Última vez: $displayWeight × ${last.reps} reps · RPE ${last.rpe ?: "-"}",
                             fontSize = 12.sp, color = AppleTeal, fontWeight = FontWeight.Bold
                         )
                     }
@@ -523,12 +549,44 @@ fun SetLogModal(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // kg / lb toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GlassSurfaceWhite)
+                        .border(1.dp, GlassBorderWhite, RoundedCornerShape(12.dp))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    listOf(true to "kg", false to "lb").forEach { (isKg, label) ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (useKg == isKg) AppleBlue else Color.Transparent)
+                                .clickable { useKg = isKg }
+                                .padding(vertical = 7.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (useKg == isKg) Color.White else TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Weight & Reps inputs
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
-                        value = weightKg,
-                        onValueChange = { weightKg = it },
-                        label = { Text("Peso (kg)") },
+                        value = weightInput,
+                        onValueChange = { weightInput = it },
+                        label = { Text("Peso (${if (useKg) "kg" else "lb"})") },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
@@ -561,20 +619,20 @@ fun SetLogModal(
                 Button(
                     onClick = {
                         scope.launch {
-                            val w = weightKg.toDoubleOrNull() ?: 0.0
+                            val weightKg = displayToKg()  // Always convert to kg for storage
                             val r = reps.toIntOrNull() ?: 0
                             val rpeVal = rpe.toDoubleOrNull() ?: 7.0
                             val entity = SetLogEntity(
                                 exerciseId = exercise.id,
                                 exerciseName = exercise.name,
-                                weightKg = w,
+                                weightKg = weightKg,
                                 reps = r,
                                 rpe = rpeVal,
                                 setNumber = setNumber,
                                 isSynced = false
                             )
                             dao.insertSetLog(entity)
-                            onSaved(w, r, rpeVal, setNumber)
+                            onSaved(weightKg, r, rpeVal, setNumber)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -589,3 +647,4 @@ fun SetLogModal(
         }
     }
 }
+

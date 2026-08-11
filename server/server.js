@@ -169,7 +169,7 @@ app.get('/api/exercises', async (req, res) => {
     ];
 
     const pageNum  = Math.max(1, parseInt(page)  || 1);
-    const pageSize = Math.min(200, parseInt(limit) || 50);
+    const pageSize = Math.min(2000, parseInt(limit) || 50);
 
     const [exercises, total] = await Promise.all([
       prisma.exercise.findMany({
