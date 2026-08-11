@@ -1,6 +1,6 @@
 // seed-hasaneyldrm.js
 // Seeds 1,324 exercises from hasaneyldrm/exercises-dataset
-// Fields: id, name, category, body_part, equipment, instruction_steps, target, gif_url
+// Uses batch upsert by name for performance
 const { PrismaClient } = require('@prisma/client');
 const https = require('https');
 
@@ -10,21 +10,41 @@ const GIF_BASE = 'https://raw.githubusercontent.com/hasaneyldrm/exercises-datase
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    const req = https.get(url, (res) => {
+      // Follow redirects
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        return fetchJson(res.headers.location).then(resolve).catch(reject);
+      }
       let data = '';
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         try { resolve(JSON.parse(data)); }
-        catch (e) { reject(e); }
+        catch (e) { reject(new Error(`JSON parse error: ${e.message}`)); }
       });
-    }).on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Request timeout')); });
   });
 }
 
 async function main() {
   console.log('⬇️  Downloading exercises from hasaneyldrm/exercises-dataset...');
-  const exercises = await fetchJson(DATASET_URL);
+  
+  let exercises;
+  try {
+    exercises = await fetchJson(DATASET_URL);
+  } catch (e) {
+    console.error(`❌ Failed to download dataset: ${e.message}`);
+    console.log('⚠️  Skipping hasaneyldrm seed — server will start with existing exercises.');
+    return;
+  }
+  
   console.log(`📦 Downloaded ${exercises.length} exercises.`);
+
+  // Get existing exercise names for efficient lookup
+  const existing = await prisma.exercise.findMany({ select: { id: true, name: true } });
+  const existingMap = new Map(existing.map(e => [e.name.toLowerCase(), e.id]));
+  console.log(`📊 Found ${existingMap.size} existing exercises in DB.`);
 
   let created = 0, updated = 0, failed = 0;
 
@@ -37,30 +57,30 @@ async function main() {
         ? stepsEs.join(' ')
         : Array.isArray(stepsEn) && stepsEn.length > 0
           ? stepsEn.join(' ')
-          : (ex.instructions || '');
+          : (typeof ex.instructions === 'string' ? ex.instructions : '');
 
-      // Build full GIF URL
+      // Build full GIF URL pointing to GitHub raw content
       const mediaUrl = ex.gif_url
         ? `${GIF_BASE}${ex.gif_url}`
         : null;
 
-      // Map fields to DB schema
-      // category: use body_part (chest, back, shoulders, etc.)
-      // muscleGroup: use target (the specific muscle)
+      // Map fields to DB schema:
+      //   body_part  → category   (chest, back, shoulders, waist, etc.)
+      //   target     → muscleGroup (abs, pectorals, delts, etc.)
       const data = {
-        name: ex.name,
-        category: ex.body_part || ex.category || 'General',
-        muscleGroup: ex.target || ex.muscle_group || 'General',
-        equipment: ex.equipment || 'body weight',
+        name:         ex.name,
+        category:     ex.body_part || ex.category || 'General',
+        muscleGroup:  ex.target || ex.muscle_group || 'General',
+        equipment:    ex.equipment || 'body weight',
         instructions,
         mediaUrl,
-        defaultSets: 4,
-        defaultReps: 12,
+        defaultSets:  4,
+        defaultReps:  12,
       };
 
-      const existing = await prisma.exercise.findFirst({ where: { name: ex.name } });
-      if (existing) {
-        await prisma.exercise.update({ where: { id: existing.id }, data });
+      const existingId = existingMap.get(ex.name.toLowerCase());
+      if (existingId) {
+        await prisma.exercise.update({ where: { id: existingId }, data });
         updated++;
       } else {
         await prisma.exercise.create({ data });
@@ -73,7 +93,7 @@ async function main() {
   }
 
   const total = await prisma.exercise.count();
-  console.log(`\n✅ Seed complete!`);
+  console.log(`\n✅ hasaneyldrm seed complete!`);
   console.log(`   Created: ${created} | Updated: ${updated} | Failed: ${failed}`);
   console.log(`   Total exercises in DB: ${total}`);
 }

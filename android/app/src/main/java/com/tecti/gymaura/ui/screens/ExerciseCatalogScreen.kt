@@ -32,6 +32,29 @@ import com.tecti.gymaura.ui.components.GlassCard
 import com.tecti.gymaura.ui.components.GlassChip
 import com.tecti.gymaura.ui.theme.*
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+
+fun getSpanishCategoryName(category: String): String {
+    return when (category) {
+        "chest" -> "Pecho"
+        "back" -> "Espalda"
+        "waist" -> "Cintura/Abdomen"
+        "shoulders" -> "Hombros"
+        "upper arms" -> "Brazos"
+        "lower arms" -> "Antebrazos"
+        "upper legs" -> "Piernas"
+        "lower legs" -> "Pantorrillas"
+        "cardio" -> "Cardio"
+        "neck" -> "Cuello"
+        else -> category
+    }
+}
 
 @Composable
 fun ExerciseCatalogScreen(
@@ -48,7 +71,7 @@ fun ExerciseCatalogScreen(
 
     val scope = rememberCoroutineScope()
 
-    val categories = listOf("Todos", "Pecho", "Espalda", "Pierna", "Hombro", "Bíceps", "Tríceps", "Abdomen", "Cardio")
+    val categories = listOf("Todos", "chest", "back", "waist", "shoulders", "upper arms", "lower arms", "upper legs", "lower legs", "cardio", "neck")
 
     fun reloadExercises() {
         scope.launch {
@@ -127,7 +150,7 @@ fun ExerciseCatalogScreen(
         ) {
             items(categories) { category ->
                 GlassChip(
-                    text = category,
+                    text = getSpanishCategoryName(category),
                     isSelected = selectedCategory == category,
                     onClick = { selectedCategory = category }
                 )
@@ -200,19 +223,34 @@ fun ExerciseCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(AppleBlue.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FitnessCenter,
-                    contentDescription = null,
-                    tint = AppleBlue,
-                    modifier = Modifier.size(24.dp)
+            if (!exercise.mediaUrl.isNullOrEmpty()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(exercise.mediaUrl)
+                        .crossfade(true)
+                        .build(),
+                    imageLoader = buildCoilLoader(LocalContext.current),
+                    contentDescription = exercise.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(16.dp))
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(AppleBlue.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FitnessCenter,
+                        contentDescription = null,
+                        tint = AppleBlue,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -228,7 +266,7 @@ fun ExerciseCard(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GlassBadge(text = exercise.category, color = AppleBlue)
+                    GlassBadge(text = getSpanishCategoryName(exercise.category), color = AppleBlue)
                     GlassBadge(text = exercise.targetMuscle, color = AppleTeal)
                 }
             }
@@ -257,59 +295,142 @@ fun ExerciseDetailModal(
 ) {
     Dialog(onDismissRequest = onDismiss) {
         GlassCard(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 600.dp),
             backgroundColor = GlassSurfaceWhite,
             borderColor = GlassBorderWhite
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(AppleBlue.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // GIF at the top
+                if (!exercise.mediaUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(exercise.mediaUrl)
+                            .crossfade(true)
+                            .build(),
+                        imageLoader = buildCoilLoader(LocalContext.current),
+                        contentDescription = exercise.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                                listOf(AppleBlue.copy(alpha = 0.2f), AppleTeal.copy(alpha = 0.05f))
+                            )),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(imageVector = Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(64.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(text = exercise.name, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                Spacer(modifier = Modifier.height(8.dp))
+                GlassBadge(text = exercise.targetMuscle, color = AppleBlue)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(28.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GlassSurfaceElevated)
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Categoría", fontSize = 10.sp, color = TextSecondary)
+                            Text(getSpanishCategoryName(exercise.category), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary, textAlign = TextAlign.Center)
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GlassSurfaceElevated)
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Equipo", fontSize = 10.sp, color = TextSecondary)
+                            Text(exercise.equipment, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary, textAlign = TextAlign.Center)
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GlassSurfaceElevated)
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Sets × Reps", fontSize = 10.sp, color = TextSecondary)
+                            Text("${exercise.defaultSets} × ${exercise.defaultReps}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppleTeal)
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(text = exercise.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    Text(text = exercise.targetMuscle, fontSize = 13.sp, color = AppleBlue, fontWeight = FontWeight.SemiBold)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("Instrucciones", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val instructions = if (exercise.instructions.isNotBlank()) exercise.instructions else "Mantén una ejecución controlada y respiración constante."
+                val steps = instructions.split(". ").filter { it.isNotBlank() }
+
+                steps.forEachIndexed { index, step ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(AppleBlue),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text((index + 1).toString(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = if (step.endsWith(".")) step else "$step.",
+                            fontSize = 14.sp,
+                            color = TextSecondary,
+                            lineHeight = 20.sp
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text("Categoría", fontSize = 11.sp, color = TextSecondary)
-                    Text(exercise.category, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                }
-                Column {
-                    Text("Equipamiento", fontSize = 11.sp, color = TextSecondary)
-                    Text(exercise.equipment, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                }
-                Column {
-                    Text("Sets x Reps", fontSize = 11.sp, color = TextSecondary)
-                    Text("${exercise.defaultSets} x ${exercise.defaultReps}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppleTeal)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text("Técnica e Instrucciones:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = if (exercise.instructions.isNotBlank()) exercise.instructions else "Mantén una ejecución controlada y respiración constante.",
-                fontSize = 13.sp,
-                color = TextSecondary,
-                lineHeight = 18.sp
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                GlassButton(text = "Cerrar", onClick = onDismiss)
+                GlassButton(
+                    text = "Cerrar",
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    gradientColors = listOf(AppleBlue, AppleBlue)
+                )
             }
         }
     }
@@ -321,12 +442,12 @@ fun AddExerciseModal(
     onAdded: () -> Unit
 ) {
     var name by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("Pecho") }
+    var category by remember { mutableStateOf("chest") }
     var targetMuscle by remember { mutableStateOf("") }
     var equipment by remember { mutableStateOf("") }
     var instructions by remember { mutableStateOf("") }
 
-    val categories = listOf("Pecho", "Espalda", "Pierna", "Hombro", "Bíceps", "Tríceps", "Abdomen", "Cardio")
+    val categories = listOf("chest", "back", "waist", "shoulders", "upper arms", "lower arms", "upper legs", "lower legs", "cardio", "neck")
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
 
@@ -351,7 +472,7 @@ fun AddExerciseModal(
             Text("Categoría", fontSize = 12.sp, color = TextSecondary)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(categories) { cat ->
-                    GlassChip(text = cat, isSelected = category == cat, onClick = { category = cat })
+                    GlassChip(text = getSpanishCategoryName(cat), isSelected = category == cat, onClick = { category = cat })
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
