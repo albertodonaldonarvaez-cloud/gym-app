@@ -586,14 +586,33 @@ app.put('/api/admin/users/:id', authMiddleware, adminOnly, async (req, res) => {
 
 app.delete('/api/admin/users/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
+    const { id } = req.params;
     // Prevent deleting yourself
-    if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
-    await prisma.user.delete({ where: { id: req.params.id } });
-    res.json({ ok: true });
+    if (id === req.user.id) return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
+
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    // Cascade delete in the correct order to avoid FK violations:
+    // 1. SetLogs of this user
+    await prisma.setLog.deleteMany({ where: { athleteId: id } });
+    // 2. WorkoutLogs of this user
+    await prisma.workoutLog.deleteMany({ where: { athleteId: id } });
+    // 3. RoutinePlans where this user is the athlete
+    await prisma.routinePlan.deleteMany({ where: { athleteId: id } });
+    // 4. If this user is a COACH, delete their plans and unassign their clients
+    if (target.role === 'COACH') {
+      await prisma.routinePlan.deleteMany({ where: { coachId: id } });
+      await prisma.user.updateMany({ where: { coachId: id }, data: { coachId: null } });
+    }
+    // 5. Finally delete the user
+    await prisma.user.delete({ where: { id } });
+
+    res.json({ ok: true, deleted: target.name });
   } catch (e) {
-    console.error(e);
-    if (e.code === 'P2025') return res.status(404).json({ error: 'User not found' });
-    res.status(500).json({ error: 'Server error' });
+    console.error('Delete user error:', e);
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.status(500).json({ error: 'Server error', detail: e.message });
   }
 });
 

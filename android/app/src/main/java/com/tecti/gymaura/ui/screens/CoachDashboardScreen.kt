@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sports
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,11 +22,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.tecti.gymaura.data.model.*
 import com.tecti.gymaura.data.remote.ServerRepository
 import com.tecti.gymaura.ui.components.GlassBadge
@@ -390,6 +394,7 @@ fun RoutineBuilderModal(
                             Text("No hay ejercicios agregados a este día.", fontSize = 12.sp, color = TextSecondary)
                         }
                     } else {
+                        val ctx = LocalContext.current
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(currentDaySchedule.exercises) { itemEx ->
                                 val exInfo = exercisesMap[itemEx.exerciseId]
@@ -403,9 +408,38 @@ fun RoutineBuilderModal(
                                         .padding(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // GIF / image thumbnail
+                                    val gifUrl = exInfo?.mediaUrl
+                                    if (!gifUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(ctx)
+                                                .data(gifUrl)
+                                                .crossfade(true)
+                                                .build(),
+                                            imageLoader = buildCoilLoader(ctx),
+                                            contentDescription = exName,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(AppleBlue.copy(alpha = 0.12f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(22.dp))
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(exName, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                        Text("${itemEx.sets} series x ${itemEx.reps} reps ${if (itemEx.targetWeightKg > 0) "• ${itemEx.targetWeightKg} kg" else ""}", fontSize = 12.sp, color = TextSecondary)
+                                        Text("${itemEx.sets} series × ${itemEx.reps} reps ${if (itemEx.targetWeightKg > 0) "• ${itemEx.targetWeightKg} kg" else ""}", fontSize = 12.sp, color = TextSecondary)
                                     }
 
                                     IconButton(
@@ -454,40 +488,133 @@ fun RoutineBuilderModal(
         }
     }
 
-    // Modal to pick exercise to add to day
+    // Modal to pick exercise to add to day — with search + GIF preview
     if (showSelectExerciseModal) {
+        var exerciseSearch by remember { mutableStateOf("") }
+        val filteredExercises = remember(exerciseSearch, allExercises) {
+            if (exerciseSearch.isBlank()) allExercises
+            else allExercises.filter { ex ->
+                ex.name.contains(exerciseSearch, ignoreCase = true) ||
+                ex.targetMuscle.contains(exerciseSearch, ignoreCase = true) ||
+                ex.category.contains(exerciseSearch, ignoreCase = true)
+            }
+        }
+        val pickerCtx = LocalContext.current
+
         Dialog(onDismissRequest = { showSelectExerciseModal = false }) {
             GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.7f),
+                    .fillMaxHeight(0.82f),
                 backgroundColor = GlassSurfaceWhite
             ) {
-                Text("Seleccionar Ejercicio para $selectedDay", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Spacer(modifier = Modifier.height(10.dp))
+                // Header
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).clip(CircleShape)
+                            .background(AppleBlue.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text("Agregar ejercicio", fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                        Text(selectedDay, fontSize = 12.sp, color = AppleBlue, fontWeight = FontWeight.SemiBold)
+                    }
+                }
 
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                    items(allExercises) { ex ->
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Search bar
+                OutlinedTextField(
+                    value = exerciseSearch,
+                    onValueChange = { exerciseSearch = it },
+                    placeholder = { Text("Buscar por nombre, músculo...", color = TextTertiary, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AppleBlue) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = GlassSurfaceElevated,
+                        unfocusedContainerColor = GlassSurfaceWhite,
+                        focusedBorderColor = AppleBlue,
+                        unfocusedBorderColor = GlassBorderWhite
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("${filteredExercises.size} ejercicios", fontSize = 11.sp, color = TextTertiary)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Exercise list with GIF thumbnails
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(filteredExercises, key = { it.id }) { ex ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(GlassSurfaceElevated)
                                 .clickable {
-                                    val newExList = currentDaySchedule.exercises + RoutineExercise(ex.id, ex.defaultSets, ex.defaultReps, 0.0)
+                                    val newExList = currentDaySchedule.exercises +
+                                        RoutineExercise(ex.id, ex.defaultSets, ex.defaultReps, 0.0)
                                     val updated = currentSchedule.toMutableMap()
                                     updated[selectedDay] = currentDaySchedule.copy(exercises = newExList)
                                     currentSchedule = updated
                                     showSelectExerciseModal = false
                                 }
-                                .padding(12.dp),
+                                .padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(imageVector = Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue)
+                            // GIF / image thumbnail
+                            if (!ex.mediaUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(pickerCtx)
+                                        .data(ex.mediaUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    imageLoader = buildCoilLoader(pickerCtx),
+                                    contentDescription = ex.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(AppleBlue.copy(alpha = 0.1f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(26.dp))
+                                }
+                            }
+
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(ex.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                Text("${ex.category} • ${ex.targetMuscle}", fontSize = 12.sp, color = TextSecondary)
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(ex.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 2)
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    GlassBadge(text = ex.category, color = AppleBlue)
+                                    GlassBadge(text = ex.targetMuscle, color = AppleTeal)
+                                }
+                            }
+
+                            // Add indicator
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(AppleBlue.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -495,7 +622,7 @@ fun RoutineBuilderModal(
 
                 Spacer(modifier = Modifier.height(10.dp))
                 TextButton(onClick = { showSelectExerciseModal = false }, modifier = Modifier.align(Alignment.End)) {
-                    Text("Cerrar")
+                    Text("Cerrar", color = TextSecondary)
                 }
             }
         }
