@@ -48,6 +48,7 @@ fun CoachDashboardScreen(
     var showAddClientModal by remember { mutableStateOf(false) }
     var showRoutineBuilderModal by remember { mutableStateOf(false) }
     var showTemplatesModal by remember { mutableStateOf(false) }
+    var showUploadExerciseModal by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
 
     val scope = rememberCoroutineScope()
@@ -120,12 +121,18 @@ fun CoachDashboardScreen(
         ) {
             Text(text = "Mis Clientes (${clients.size})", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 GlassButton(
                     text = "Plantillas",
                     onClick = { showTemplatesModal = true },
                     modifier = Modifier.height(36.dp),
                     gradientColors = listOf(AppleIndigo, AppleBlue)
+                )
+                GlassButton(
+                    text = "🎬 Ejercicio",
+                    onClick = { showUploadExerciseModal = true },
+                    modifier = Modifier.height(36.dp),
+                    gradientColors = listOf(AppleOrange, AppleRose)
                 )
                 GlassButton(
                     text = "+ Cliente",
@@ -188,6 +195,14 @@ fun CoachDashboardScreen(
         TemplateManagerModal(
             clients = clients,
             onDismiss = { showTemplatesModal = false }
+        )
+    }
+
+    // Upload Custom Exercise Modal
+    if (showUploadExerciseModal) {
+        UploadCustomExerciseModal(
+            onDismiss = { showUploadExerciseModal = false },
+            onUploaded = { showUploadExerciseModal = false }
         )
     }
 }
@@ -1293,3 +1308,262 @@ fun ExerciseQuickPreviewDialog(exercise: Exercise, onAdd: () -> Unit, onDismiss:
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UPLOAD CUSTOM EXERCISE WITH VIDEO URL (TikTok / YouTube / MP4)
+// ─────────────────────────────────────────────────────────────────────────────
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun UploadCustomExerciseModal(
+    onDismiss: () -> Unit,
+    onUploaded: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf("") }
+    var muscleGroup by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("General") }
+    var equipment by remember { mutableStateOf("Libre") }
+    var instructions by remember { mutableStateOf("") }
+    var videoUrl by remember { mutableStateOf("") }
+    var uploading by remember { mutableStateOf(false) }
+    var resultMsg by remember { mutableStateOf<String?>(null) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    val muscleOptions = listOf("Pecho","Espalda","Hombros","Bíceps","Tríceps","Antebrazos","Abdomen","Glúteos","Cuádriceps","Isquiotibiales","Pantorrillas","Cardio","Cuerpo Completo")
+    val categoryOptions = listOf("General","chest","back","shoulders","upper arms","lower arms","upper legs","lower legs","waist","cardio","neck")
+    val equipmentOptions = listOf("Libre","Mancuernas","Barra","Máquina","Cable","Bandas","Peso Corporal","Kettlebell","Sin Equipo")
+
+    var expandMuscle by remember { mutableStateOf(false) }
+    var expandCategory by remember { mutableStateOf(false) }
+    var expandEquipment by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = GlassSurfaceWhite),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("🎬 Subir Ejercicio", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                        Text("Video descargado automáticamente", fontSize = 11.sp, color = TextSecondary)
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Exercise Name
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre del ejercicio *") },
+                    placeholder = { Text("Ej: Curl de martillo con cable") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Muscle Group Dropdown
+                ExposedDropdownMenuBox(
+                    expanded = expandMuscle,
+                    onExpandedChange = { expandMuscle = !expandMuscle }
+                ) {
+                    OutlinedTextField(
+                        value = muscleGroup,
+                        onValueChange = { muscleGroup = it },
+                        label = { Text("Músculo objetivo *") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandMuscle) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    ExposedDropdownMenu(expanded = expandMuscle, onDismissRequest = { expandMuscle = false }) {
+                        muscleOptions.forEach { opt ->
+                            DropdownMenuItem(text = { Text(opt) }, onClick = { muscleGroup = opt; expandMuscle = false })
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Category + Equipment row
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExposedDropdownMenuBox(
+                        expanded = expandCategory,
+                        onExpandedChange = { expandCategory = !expandCategory },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = category, onValueChange = {},
+                            label = { Text("Categoría") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandCategory) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            shape = RoundedCornerShape(14.dp), readOnly = true
+                        )
+                        ExposedDropdownMenu(expanded = expandCategory, onDismissRequest = { expandCategory = false }) {
+                            categoryOptions.forEach { opt ->
+                                DropdownMenuItem(text = { Text(opt) }, onClick = { category = opt; expandCategory = false })
+                            }
+                        }
+                    }
+                    ExposedDropdownMenuBox(
+                        expanded = expandEquipment,
+                        onExpandedChange = { expandEquipment = !expandEquipment },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = equipment, onValueChange = {},
+                            label = { Text("Equipo") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandEquipment) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            shape = RoundedCornerShape(14.dp), readOnly = true
+                        )
+                        ExposedDropdownMenu(expanded = expandEquipment, onDismissRequest = { expandEquipment = false }) {
+                            equipmentOptions.forEach { opt ->
+                                DropdownMenuItem(text = { Text(opt) }, onClick = { equipment = opt; expandEquipment = false })
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Instructions
+                OutlinedTextField(
+                    value = instructions,
+                    onValueChange = { instructions = it },
+                    label = { Text("Descripción / Instrucciones") },
+                    placeholder = { Text("Pasos, técnica, errores comunes...") },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 90.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    maxLines = 6
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Video URL — highlighted card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = AppleOrange.copy(alpha = 0.08f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AppleOrange.copy(alpha = 0.35f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("🎬", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("URL del Video", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                Text("TikTok, YouTube, Instagram, MP4 directo", fontSize = 11.sp, color = TextSecondary)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = videoUrl,
+                            onValueChange = { videoUrl = it },
+                            label = { Text("URL del video") },
+                            placeholder = { Text("https://www.tiktok.com/@...") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(Icons.Default.Link, contentDescription = null, tint = AppleOrange, modifier = Modifier.size(18.dp))
+                            }
+                        )
+                        if (videoUrl.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                "✅ El servidor descargará el video automáticamente en segundo plano",
+                                fontSize = 11.sp, color = AppleEmerald, fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                // Messages
+                resultMsg?.let {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = AppleEmerald.copy(alpha = 0.1f))
+                    ) {
+                        Text(it, modifier = Modifier.padding(12.dp), color = AppleEmerald, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                }
+                errorMsg?.let {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = AppleRose.copy(alpha = 0.1f))
+                    ) {
+                        Text(it, modifier = Modifier.padding(12.dp), color = AppleRose, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Buttons
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) { Text("Cancelar") }
+
+                    Button(
+                        onClick = {
+                            if (name.isBlank() || muscleGroup.isBlank()) {
+                                errorMsg = "❌ Nombre y músculo son obligatorios"
+                                return@Button
+                            }
+                            uploading = true; errorMsg = null; resultMsg = null
+                            scope.launch {
+                                val result = ServerRepository.createCustomExercise(
+                                    name = name, muscleGroup = muscleGroup,
+                                    category = category, equipment = equipment,
+                                    instructions = instructions, videoUrl = videoUrl
+                                )
+                                uploading = false
+                                if (result != null) {
+                                    resultMsg = if (videoUrl.isNotBlank())
+                                        "✅ Ejercicio creado. El video se descarga en el servidor (1-2 min)."
+                                    else "✅ Ejercicio '$name' creado exitosamente."
+                                    kotlinx.coroutines.delay(2000)
+                                    onUploaded()
+                                } else {
+                                    errorMsg = "❌ Error al subir. Verifica la conexión al servidor."
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AppleOrange),
+                        enabled = !uploading
+                    ) {
+                        if (uploading) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            if (uploading) "Subiendo..." else "Subir",
+                            color = Color.White, fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

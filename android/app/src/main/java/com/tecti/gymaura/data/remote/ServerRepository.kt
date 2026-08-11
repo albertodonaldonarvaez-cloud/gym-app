@@ -367,4 +367,21 @@ object ServerRepository {
             resp.isSuccessful
         } catch (e: Exception) { Log.e(TAG, "saveWorkoutSession: ${e.message}"); false }
     }
+
+    // ─── CUSTOM EXERCISES ─────────────────────────────────────────────────────────
+    suspend fun createCustomExercise(
+        name: String, muscleGroup: String, category: String,
+        equipment: String, instructions: String, videoUrl: String
+    ): Map<String, Any>? {
+        return try {
+            val body = mapOf(
+                "name" to name, "muscleGroup" to muscleGroup,
+                "category" to category, "equipment" to equipment,
+                "instructions" to instructions, "videoUrl" to videoUrl
+            )
+            val resp = api().createCustomExercise(authHeader(), body)
+            @Suppress("UNCHECKED_CAST")
+            if (resp.isSuccessful) resp.body() as? Map<String, Any> else null
+        } catch (e: Exception) { Log.e(TAG, "createCustomExercise: ${e.message}"); null }
+    }
 }
