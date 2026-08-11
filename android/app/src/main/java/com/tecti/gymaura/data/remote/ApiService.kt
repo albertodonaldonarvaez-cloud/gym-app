@@ -109,10 +109,35 @@ interface ApiService {
         @Path("id") exerciseId: String
     ): Response<LastPerformance>
 
-    // ─── HUAWEI HEALTH ─────────────────────────────────────────────────────────
+    // ─── HUAWEI HEALTH ─────────────────────────────────────────────────────────────
     @POST("api/v1/huawei/sync-workout")
     suspend fun syncHuaweiWorkout(
         @Header("Authorization") token: String,
         @Body data: HuaweiWorkoutData
     ): Response<Map<String, Any>>
+
+    // ─── ROUTINE TEMPLATES ─────────────────────────────────────────────────────────
+    @GET("api/v1/coach/templates")
+    suspend fun getTemplates(
+        @Header("Authorization") token: String
+    ): Response<List<RoutineTemplate>>
+
+    @POST("api/v1/coach/templates")
+    suspend fun saveTemplate(
+        @Header("Authorization") token: String,
+        @Body template: RoutineTemplate
+    ): Response<RoutineTemplate>
+
+    @DELETE("api/v1/coach/templates/{id}")
+    suspend fun deleteTemplate(
+        @Header("Authorization") token: String,
+        @Path("id") id: String
+    ): Response<Map<String, Any>>
+
+    @POST("api/v1/coach/templates/{id}/assign")
+    suspend fun assignTemplate(
+        @Header("Authorization") token: String,
+        @Path("id") templateId: String,
+        @Body body: AssignTemplateRequest
+    ): Response<AssignTemplateResponse>
 }

@@ -31,6 +31,7 @@ model User {
   clients       User[]   @relation("CoachClients")
   routinesAsCoach   RoutinePlan[] @relation("CoachPlans")
   routinesAsAthlete RoutinePlan[] @relation("AthletePlans")
+  routineTemplates  RoutineTemplate[] @relation("CoachTemplates")
   workoutLogs   WorkoutLog[]
   setLogs       SetLog[]
 
@@ -108,4 +109,18 @@ model SetLog {
 
   @@index([athleteId, exerciseId])
   @@map("set_logs")
+}
+
+model RoutineTemplate {
+  id          String   @id @default(cuid())
+  coachId     String   @map("coach_id")
+  title       String
+  description String   @default("Plantilla de rutina")
+  schedule    Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  coach       User     @relation("CoachTemplates", fields: [coachId], references: [id])
+
+  @@map("routine_templates")
 }

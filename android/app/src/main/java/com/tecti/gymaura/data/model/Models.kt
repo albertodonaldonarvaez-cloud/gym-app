@@ -159,3 +159,24 @@ data class WorkoutHistoryItem(
     val notes: String,
     val createdAt: String
 )
+
+// ─── ROUTINE TEMPLATES ────────────────────────────────────────────────────────
+data class RoutineTemplate(
+    val id: String = "",
+    val title: String,
+    val description: String = "Plantilla de rutina",
+    val schedule: Map<String, DaySchedule> = emptyMap(),
+    val createdAt: String = "",
+    val updatedAt: String = ""
+)
+
+data class AssignTemplateRequest(
+    val clientIds: List<String>
+)
+
+data class AssignTemplateResponse(
+    val ok: Boolean,
+    val assigned: Int,
+    val failed: Int,
+    val templateTitle: String
+)

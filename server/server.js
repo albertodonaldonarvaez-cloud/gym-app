@@ -636,6 +636,102 @@ app.put('/api/admin/unassign', authMiddleware, adminOnly, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
+// ─── ROUTINE TEMPLATES ────────────────────────────────────────────────────────
+
+// List coach's templates
+app.get('/api/v1/coach/templates', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const templates = await prisma.routineTemplate.findMany({
+      where: { coachId: req.user.id },
+      orderBy: { updatedAt: 'desc' }
+    });
+    res.json(templates.map(t => ({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      schedule: t.schedule,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    })));
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Create or update a template
+app.post('/api/v1/coach/templates', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const { id, title, description, schedule } = req.body;
+    if (!title || !schedule) return res.status(400).json({ error: 'title and schedule required' });
+
+    let template;
+    if (id) {
+      // Update existing — verify ownership
+      const existing = await prisma.routineTemplate.findUnique({ where: { id } });
+      if (!existing || existing.coachId !== req.user.id)
+        return res.status(404).json({ error: 'Template not found' });
+      template = await prisma.routineTemplate.update({
+        where: { id },
+        data: { title, description: description || 'Plantilla de rutina', schedule, updatedAt: new Date() }
+      });
+    } else {
+      template = await prisma.routineTemplate.create({
+        data: { coachId: req.user.id, title, description: description || 'Plantilla de rutina', schedule }
+      });
+    }
+    res.json({ id: template.id, title: template.title, description: template.description, schedule: template.schedule });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Delete a template
+app.delete('/api/v1/coach/templates/:id', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const template = await prisma.routineTemplate.findUnique({ where: { id: req.params.id } });
+    if (!template || template.coachId !== req.user.id)
+      return res.status(404).json({ error: 'Template not found' });
+    await prisma.routineTemplate.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Assign a template to one or more clients (copies schedule as their RoutinePlan)
+app.post('/api/v1/coach/templates/:id/assign', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const template = await prisma.routineTemplate.findUnique({ where: { id: req.params.id } });
+    if (!template || template.coachId !== req.user.id)
+      return res.status(404).json({ error: 'Template not found' });
+
+    const { clientIds } = req.body; // Array of client user IDs
+    if (!Array.isArray(clientIds) || clientIds.length === 0)
+      return res.status(400).json({ error: 'clientIds[] required' });
+
+    let assigned = 0, failed = 0;
+    for (const clientId of clientIds) {
+      try {
+        // Verify this client belongs to the coach
+        const client = await prisma.user.findFirst({
+          where: { id: clientId, role: 'CLIENT', coachId: req.user.id }
+        });
+        if (!client) { failed++; continue; }
+
+        // Upsert routine plan — copy the template schedule
+        const existing = await prisma.routinePlan.findFirst({ where: { athleteId: clientId } });
+        if (existing) {
+          await prisma.routinePlan.update({
+            where: { id: existing.id },
+            data: { title: template.title, description: template.description, schedule: template.schedule, updatedAt: new Date() }
+          });
+        } else {
+          await prisma.routinePlan.create({
+            data: { coachId: req.user.id, athleteId: clientId, title: template.title, description: template.description, schedule: template.schedule }
+          });
+        }
+        assigned++;
+      } catch (err) { console.error('Assign error for client', clientId, err.message); failed++; }
+    }
+
+    res.json({ ok: true, assigned, failed, templateTitle: template.title });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
 // Start Server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 GymAura Server v2 ejecutándose en http://0.0.0.0:${PORT}`);

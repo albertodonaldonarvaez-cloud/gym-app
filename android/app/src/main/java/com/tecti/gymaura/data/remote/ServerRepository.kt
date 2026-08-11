@@ -263,4 +263,33 @@ object ServerRepository {
         _isServerConnected.value = result
         return result
     }
+
+    // ─── ROUTINE TEMPLATES ────────────────────────────────────────────────────
+    suspend fun getTemplates(): List<RoutineTemplate> {
+        return try {
+            val resp = api().getTemplates(authHeader())
+            if (resp.isSuccessful) resp.body() ?: emptyList() else emptyList()
+        } catch (e: Exception) { Log.e(TAG, "getTemplates error: ${e.message}"); emptyList() }
+    }
+
+    suspend fun saveTemplate(template: RoutineTemplate): RoutineTemplate? {
+        return try {
+            val resp = api().saveTemplate(authHeader(), template)
+            if (resp.isSuccessful) resp.body() else null
+        } catch (e: Exception) { Log.e(TAG, "saveTemplate error: ${e.message}"); null }
+    }
+
+    suspend fun deleteTemplate(id: String): Boolean {
+        return try {
+            val resp = api().deleteTemplate(authHeader(), id)
+            resp.isSuccessful
+        } catch (e: Exception) { Log.e(TAG, "deleteTemplate error: ${e.message}"); false }
+    }
+
+    suspend fun assignTemplate(templateId: String, clientIds: List<String>): AssignTemplateResponse? {
+        return try {
+            val resp = api().assignTemplate(authHeader(), templateId, AssignTemplateRequest(clientIds))
+            if (resp.isSuccessful) resp.body() else null
+        } catch (e: Exception) { Log.e(TAG, "assignTemplate error: ${e.message}"); null }
+    }
 }
