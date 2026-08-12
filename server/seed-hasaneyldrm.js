@@ -28,6 +28,13 @@ function fetchJson(url) {
 }
 
 async function main() {
+  // ── FAST CHECK: skip if already seeded ────────────────────────────────────
+  const existingCount = await prisma.exercise.count();
+  if (existingCount >= 100) {
+    console.log(`✅ hasaneyldrm seed skipped — ${existingCount} exercises already in DB.`);
+    return;
+  }
+
   console.log('⬇️  Downloading exercises from hasaneyldrm/exercises-dataset...');
   
   let exercises;
