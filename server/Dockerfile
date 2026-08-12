@@ -1,8 +1,9 @@
 FROM node:20-alpine
 
-# System deps: openssl for Prisma, python3+yt-dlp for video downloads, ffmpeg for mp4 conversion
-RUN apk add --no-cache openssl python3 py3-pip ffmpeg curl && \
-    pip3 install --break-system-packages yt-dlp && \
+# System deps: openssl for Prisma, ffmpeg for video, yt-dlp binary (fast install)
+RUN apk add --no-cache openssl ffmpeg curl && \
+    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp && \
     mkdir -p /app/uploads/exercises
 
 WORKDIR /app
