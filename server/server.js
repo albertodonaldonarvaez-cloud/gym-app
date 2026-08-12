@@ -823,15 +823,6 @@ app.post('/api/v1/workouts/session', authMiddleware, async (req, res) => {
 
 // ─── CUSTOM EXERCISES (with video URL / yt-dlp) ───────────────────────────────
 
-const { execFile } = require('child_process');
-
-// Upload directory for exercise videos
-const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
-// Serve uploaded videos as static files
-app.use('/uploads', require('express').static(path.join(__dirname, 'uploads')));
-
 // Create custom exercise (coach only). videoUrl is the TikTok/YT/direct URL.
 app.post('/api/v1/coach/exercises/custom', authMiddleware, coachOnly, async (req, res) => {
   try {
