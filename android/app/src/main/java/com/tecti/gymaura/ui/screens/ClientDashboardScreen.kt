@@ -82,10 +82,7 @@ fun ClientDashboardScreen(
     var loading by remember { mutableStateOf(true) }
 
     // Active workout mode state
-    var activeWorkoutMode by remember { mutableStateOf(false) }
     var logModalExercise by remember { mutableStateOf<Exercise?>(null) }
-    var workoutStartTime by remember { mutableStateOf(0L) }
-    var elapsedSeconds by remember { mutableStateOf(0) }
     var restTimerSeconds by remember { mutableStateOf(0) }
     var isRestTimerRunning by remember { mutableStateOf(false) }
 
@@ -120,18 +117,7 @@ fun ClientDashboardScreen(
         }
     }
 
-    // Workout timer
-    LaunchedEffect(activeWorkoutMode) {
-        if (activeWorkoutMode) {
-            workoutStartTime = System.currentTimeMillis()
-            while (activeWorkoutMode) {
-                delay(1000)
-                elapsedSeconds = ((System.currentTimeMillis() - workoutStartTime) / 1000).toInt()
-            }
-        } else {
-            elapsedSeconds = 0
-        }
-    }
+
 
     // Rest timer
     LaunchedEffect(isRestTimerRunning) {
@@ -166,6 +152,7 @@ fun ClientDashboardScreen(
         scope.launch {
             loading = true
             try {
+                warmupHistory = ServerRepository.getWarmupHistory()
                 // If logged in, use current-week endpoint, else fall back to clients list
                 if (ServerRepository.isLoggedIn()) {
                     val routine = ServerRepository.getCurrentWeekRoutine()
@@ -211,19 +198,46 @@ fun ClientDashboardScreen(
         ) {
             Column {
                 Text(
-                    text = if (activeWorkoutMode) "🏋️ Entrenando" else "Mi Entrenamiento",
+                    text = if (isWorkoutActive) "🏋️ Entrenando" else "Mi Entrenamiento",
                     fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary
                 )
                 Text(
-                    text = if (activeWorkoutMode) "Tiempo: ${formatTime(elapsedSeconds)}" else "Registra tus cargas y supera tus récords",
-                    fontSize = 13.sp, color = if (activeWorkoutMode) AppleEmerald else TextSecondary
+                    text = if (isWorkoutActive) "Tiempo: ${formatTime(workoutElapsed)}" else "Registra tus cargas y supera tus récords",
+                    fontSize = 13.sp, color = if (isWorkoutActive) AppleEmerald else TextSecondary
                 )
             }
             // Workout start/stop button
             GlassButton(
-                text = if (activeWorkoutMode) "Finalizar" else "Iniciar",
-                gradientColors = if (activeWorkoutMode) listOf(AppleRose, AppleOrange) else listOf(AppleEmerald, AppleTeal),
-                onClick = { activeWorkoutMode = !activeWorkoutMode }
+                text = if (isWorkoutActive) "Finalizar" else "Iniciar",
+                gradientColors = if (isWorkoutActive) listOf(AppleRose, AppleOrange) else listOf(AppleEmerald, AppleTeal),
+                onClick = {
+                    if (isWorkoutActive) {
+                        val stopIntent = Intent(context, WorkoutForegroundService::class.java).apply {
+                            action = WorkoutForegroundService.ACTION_STOP
+                        }
+                        context.startService(stopIntent)
+                        isWorkoutActive = false
+                        scope.launch {
+                            val sessionId = WorkoutForegroundService.sessionId
+                            val startTime = WorkoutForegroundService.sessionStartTime
+                            val duration = WorkoutForegroundService.elapsedSeconds
+                            ServerRepository.saveWorkoutSession(
+                                sessionId, WorkoutForegroundService.sessionDayName,
+                                startTime, System.currentTimeMillis(), duration
+                            )
+                        }
+                    } else {
+                        val todayDay = listOf("Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo")
+                        val dayIdx = (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+                        val dayName = todayDay[dayIdx]
+                        val startIntent = Intent(context, WorkoutForegroundService::class.java).apply {
+                            action = WorkoutForegroundService.ACTION_START
+                            putExtra("dayName", dayName)
+                        }
+                        context.startForegroundService(startIntent)
+                        isWorkoutActive = true
+                    }
+                }
             )
         }
 
@@ -260,6 +274,49 @@ fun ClientDashboardScreen(
             }
         }
 
+        // ─── COMPACT WARMUP ───────────────────────────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (isWarmingUp) Color(0xFFFF9800).copy(alpha=0.1f) else GlassSurfaceWhite)
+                .border(1.dp, if (isWarmingUp) Color(0xFFFF9800).copy(alpha=0.3f) else GlassBorderWhite, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🔥", fontSize = 16.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isWarmingUp) "Calentando: ${formatWarmupTime(warmupElapsedSec)}" else "Calentar antes de entrenar",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isWarmingUp) Color(0xFFFF9800) else TextPrimary
+                )
+            }
+            Text(
+                text = if (isWarmingUp) "Terminar" else "Iniciar",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isWarmingUp) Color(0xFFFF9800) else AppleOrange,
+                modifier = Modifier.clickable {
+                    if (isWarmingUp) {
+                        showWarmupSheet = true
+                    } else {
+                        scope.launch {
+                            warmupStartTime = System.currentTimeMillis()
+                            warmupElapsedSec = 0
+                            isWarmingUp = true
+                            val id = ServerRepository.startWarmup(warmupStartTime)
+                            warmupId = id
+                        }
+                    }
+                }
+            )
+        }
+
         // ─── DAYS BAR ─────────────────────────────────────────────────────────
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -278,156 +335,41 @@ fun ClientDashboardScreen(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = AppleBlue)
             }
+        } else if (weeklyRoutine == null) {
+            // Offline fallback
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    backgroundColor = GlassSurfaceWhite,
+                    borderColor = GlassBorderWhite
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WifiOff,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Sin conexión al servidor", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Tu rutina se cargará cuando tengas internet.", fontSize = 14.sp, color = TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { loadData() },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppleBlue)
+                        ) {
+                            Text("Reintentar", color = Color.White)
+                        }
+                    }
+                }
+            }
         } else {
             val daySchedule = weeklyRoutine?.schedule?.get(selectedDay)
             val routineExercises = daySchedule?.exercises ?: emptyList()
-
-            // Warmup Quick-Access Card
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isWarmingUp) Color(0xFFFFF3CD) else GlassSurfaceWhite
-                ),
-                border = BorderStroke(1.dp, if (isWarmingUp) Color(0xFFFF9800) else GlassBorderWhite)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(44.dp).clip(CircleShape)
-                                .background(if (isWarmingUp) Color(0xFFFF9800).copy(alpha=0.15f) else AppleOrange.copy(alpha=0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("🔥", fontSize = 20.sp)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                if (isWarmingUp) "Calentando..." else "Calentamiento",
-                                fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary
-                            )
-                            Text(
-                                if (isWarmingUp) formatWarmupTime(warmupElapsedSec) else "Toca para iniciar",
-                                fontSize = 13.sp,
-                                color = if (isWarmingUp) Color(0xFFFF9800) else TextSecondary,
-                                fontWeight = if (isWarmingUp) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                    Button(
-                        onClick = {
-                            if (isWarmingUp) {
-                                showWarmupSheet = true // open to finish/save
-                            } else {
-                                scope.launch {
-                                    warmupStartTime = System.currentTimeMillis()
-                                    warmupElapsedSec = 0
-                                    isWarmingUp = true
-                                    val id = ServerRepository.startWarmup(warmupStartTime)
-                                    warmupId = id
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isWarmingUp) Color(0xFFFF9800) else AppleOrange
-                        )
-                    ) {
-                        Text(if (isWarmingUp) "Ver / Terminar" else "Iniciar", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            // Workout Session Card
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isWorkoutActive) Color(0xFFE8F5E9) else GlassSurfaceWhite
-                ),
-                border = BorderStroke(1.dp, if (isWorkoutActive) AppleEmerald else GlassBorderWhite)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(44.dp).clip(CircleShape)
-                                .background(if (isWorkoutActive) AppleEmerald.copy(alpha=0.15f) else AppleBlue.copy(alpha=0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                if (isWorkoutActive) Icons.Default.FitnessCenter else Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = if (isWorkoutActive) AppleEmerald else AppleBlue,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                if (isWorkoutActive) "Entrenamiento Activo" else "Listo para entrenar",
-                                fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary
-                            )
-                            if (isWorkoutActive) {
-                                val h = workoutElapsed / 3600
-                                val m = (workoutElapsed % 3600) / 60
-                                val s = workoutElapsed % 60
-                                val timeStr = if (h > 0) "%02d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
-                                Text(timeStr, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppleEmerald)
-                            } else {
-                                Text("Toca para comenzar sesión", fontSize = 12.sp, color = TextSecondary)
-                            }
-                        }
-                    }
-                    Button(
-                        onClick = {
-                            if (isWorkoutActive) {
-                                // Stop service
-                                val stopIntent = Intent(context, WorkoutForegroundService::class.java).apply {
-                                    action = WorkoutForegroundService.ACTION_STOP
-                                }
-                                context.startService(stopIntent)
-                                isWorkoutActive = false
-                                scope.launch {
-                                    val sessionId = WorkoutForegroundService.sessionId
-                                    val startTime = WorkoutForegroundService.sessionStartTime
-                                    val duration = WorkoutForegroundService.elapsedSeconds
-                                    ServerRepository.saveWorkoutSession(
-                                        sessionId, WorkoutForegroundService.sessionDayName,
-                                        startTime, System.currentTimeMillis(), duration
-                                    )
-                                }
-                            } else {
-                                // Start service
-                                val todayDay = listOf("Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo")
-                                val dayIdx = (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
-                                val dayName = todayDay[dayIdx]
-                                val startIntent = Intent(context, WorkoutForegroundService::class.java).apply {
-                                    action = WorkoutForegroundService.ACTION_START
-                                    putExtra("dayName", dayName)
-                                }
-                                context.startForegroundService(startIntent)
-                                isWorkoutActive = true
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isWorkoutActive) AppleRose else AppleEmerald
-                        )
-                    ) {
-                        Text(if (isWorkoutActive) "Terminar" else "▶ Iniciar", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
 
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -552,7 +494,7 @@ fun ClientDashboardScreen(
                                 }
 
                                 // Log button (only in active workout mode)
-                                if (activeWorkoutMode) {
+                                if (isWorkoutActive) {
                                     IconButton(
                                         onClick = {
                                             logModalExercise = exercise ?: Exercise(
@@ -569,6 +511,47 @@ fun ClientDashboardScreen(
                                             tint = AppleBlue
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Warmup History
+                if (warmupHistory.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Últimos calentamientos",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    items(warmupHistory.take(3)) { session ->
+                        val durationMins = session.durationSec / 60
+                        val daysAgo = ((System.currentTimeMillis() - session.startedAt) / (1000 * 60 * 60 * 24)).toInt()
+                        val timeString = when (daysAgo) {
+                            0 -> "hoy"
+                            1 -> "ayer"
+                            else -> "hace $daysAgo días"
+                        }
+                        
+                        GlassCard(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            backgroundColor = GlassSurfaceWhite,
+                            borderColor = GlassBorderWhite
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🔥", fontSize = 20.sp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("Calentamiento", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                    Text("$durationMins min — $timeString", fontSize = 12.sp, color = TextSecondary)
                                 }
                             }
                         }
