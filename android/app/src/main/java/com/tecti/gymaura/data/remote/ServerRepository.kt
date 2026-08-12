@@ -381,14 +381,12 @@ object ServerRepository {
             val dto = ApiService.SyncSetDto(
                 clientLogId = java.util.UUID.randomUUID().toString(),
                 exerciseId = exerciseId,
-                exerciseName = exerciseName,
-                setNumber = setNumber,
-                reps = reps,
+                workoutLogId = sessionId.ifBlank { null },
                 weightKg = weightKg,
+                reps = reps,
                 rpe = rpe,
-                sessionId = sessionId.ifBlank { "session_${System.currentTimeMillis()}" },
-                dayName = "",
-                performedAt = java.util.Date().toString()
+                setNumber = setNumber,
+                notes = exerciseName
             )
             val resp = api().syncWorkouts(authHeader(), ApiService.SyncRequest(listOf(dto)))
             resp.isSuccessful
