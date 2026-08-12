@@ -76,7 +76,8 @@ data class RoutineExercise(
     // Enriched by server
     val name: String = "",
     val mediaUrl: String? = null,
-    val muscleGroup: String = ""
+    val muscleGroup: String = "",
+    val instructions: String = ""
 )
 
 data class DaySchedule(

@@ -86,6 +86,10 @@ fun ClientDashboardScreen(
     var restTimerSeconds by remember { mutableStateOf(0) }
     var isRestTimerRunning by remember { mutableStateOf(false) }
 
+    // Guided workout flow
+    var completedExercises by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var activeWorkoutExercise by remember { mutableStateOf<Pair<RoutineExercise, Exercise?>?>(null) }
+
     // State for warmup
     var showWarmupSheet by remember { mutableStateOf(false) }
     var warmupId by remember { mutableStateOf<String?>(null) }
@@ -447,92 +451,97 @@ fun ClientDashboardScreen(
                         }
                     }
                 } else {
+                    // Progress bar
+                    if (isWorkoutActive && routineExercises.isNotEmpty()) {
+                        item {
+                            val done = completedExercises.size
+                            val total = routineExercises.size
+                            val progress = done.toFloat() / total.toFloat()
+                            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Progreso", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                                    Text("$done / $total ejercicios", fontSize = 12.sp, color = if (done == total) AppleEmerald else AppleBlue, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                    color = if (done == total) AppleEmerald else AppleBlue,
+                                    trackColor = GlassBorderWhite
+                                )
+                            }
+                        }
+                    }
+
                     items(routineExercises) { routineEx ->
                         val exercise = exercisesMap[routineEx.exerciseId]
                         val exName = routineEx.name.ifBlank { exercise?.name ?: routineEx.exerciseId }
                         val mediaUrl = routineEx.mediaUrl ?: exercise?.mediaUrl
+                        val isDone = completedExercises.contains(routineEx.exerciseId)
 
                         GlassCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            backgroundColor = GlassSurfaceWhite,
-                            borderColor = GlassBorderWhite
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    activeWorkoutExercise = Pair(routineEx, exercise)
+                                },
+                            backgroundColor = if (isDone) AppleEmerald.copy(alpha = 0.07f) else GlassSurfaceWhite,
+                            borderColor = if (isDone) AppleEmerald.copy(alpha = 0.4f) else GlassBorderWhite
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Exercise media thumbnail
-                                if (mediaUrl != null) {
-                                    coil.compose.AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(mediaUrl)
-                                            .crossfade(true)
-                                            .build(),
-                                        imageLoader = imageLoader,
-                                        contentDescription = exName,
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(AppleBlue.copy(alpha = 0.1f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.FitnessCenter,
-                                            contentDescription = null,
-                                            tint = AppleBlue,
-                                            modifier = Modifier.size(32.dp)
+                                // Thumbnail or completed checkmark
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isDone) AppleEmerald.copy(alpha = 0.15f) else AppleBlue.copy(alpha = 0.1f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isDone) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AppleEmerald, modifier = Modifier.size(36.dp))
+                                    } else if (mediaUrl != null) {
+                                        coil.compose.AsyncImage(
+                                            model = ImageRequest.Builder(context).data(mediaUrl).crossfade(true).build(),
+                                            imageLoader = imageLoader,
+                                            contentDescription = exName,
+                                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))
                                         )
+                                    } else {
+                                        Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(32.dp))
                                     }
-                                    Spacer(modifier = Modifier.width(12.dp))
                                 }
+                                Spacer(modifier = Modifier.width(12.dp))
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = exName,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = TextPrimary
+                                        color = if (isDone) TextSecondary else TextPrimary
                                     )
                                     Text(
-                                        text = "${routineEx.sets} series × ${routineEx.reps} reps · ${routineEx.targetWeightKg}kg objetivo",
+                                        text = "${routineEx.sets} series × ${routineEx.reps} reps · ${routineEx.targetWeightKg}kg",
                                         fontSize = 12.sp,
                                         color = TextSecondary
                                     )
                                     if (routineEx.muscleGroup.isNotBlank()) {
-                                        Text(
-                                            text = routineEx.muscleGroup,
-                                            fontSize = 11.sp,
-                                            color = AppleTeal
-                                        )
+                                        Text(text = routineEx.muscleGroup, fontSize = 11.sp, color = AppleTeal)
                                     }
                                 }
 
-                                // Log button (only in active workout mode)
-                                if (isWorkoutActive) {
-                                    IconButton(
-                                        onClick = {
-                                            logModalExercise = exercise ?: Exercise(
-                                                id = routineEx.exerciseId,
-                                                name = exName,
-                                                defaultSets = routineEx.sets,
-                                                defaultReps = routineEx.reps
-                                            )
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Add,
-                                            contentDescription = "Registrar serie",
-                                            tint = AppleBlue
-                                        )
-                                    }
-                                }
+                                // Arrow / done indicator
+                                Icon(
+                                    imageVector = if (isDone) Icons.Default.CheckCircle else Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = if (isDone) AppleEmerald else TextSecondary,
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
                         }
                     }
@@ -582,7 +591,7 @@ fun ClientDashboardScreen(
         }
     }
 
-    // ─── SET LOG MODAL ────────────────────────────────────────────────────────
+    // ─── SET LOG MODAL (legacy quick-log) ────────────────────────────────────
     logModalExercise?.let { exercise ->
         SetLogModal(
             exercise = exercise,
@@ -591,12 +600,46 @@ fun ClientDashboardScreen(
             onDismiss = { logModalExercise = null },
             onSaved = { weightKg, reps, rpe, setNumber ->
                 logModalExercise = null
-                // Start rest timer (90 seconds default)
                 restTimerSeconds = 90
                 isRestTimerRunning = true
-                // Trigger background sync
                 SyncWorkoutWorker.scheduleSync(context)
             }
+        )
+    }
+
+    // ─── GUIDED EXERCISE WORKOUT MODAL ────────────────────────────────────────
+    activeWorkoutExercise?.let { (routineEx, exercise) ->
+        val allExercises = weeklyRoutine?.schedule?.get(selectedDay)?.exercises ?: emptyList()
+        val currentIndex = allExercises.indexOfFirst { it.exerciseId == routineEx.exerciseId }
+        val nextExercise = if (currentIndex >= 0 && currentIndex < allExercises.size - 1)
+            allExercises[currentIndex + 1] else null
+
+        ExerciseWorkoutModal(
+            routineEx = routineEx,
+            exercise = exercise,
+            exercisesMap = exercisesMap,
+            imageLoader = imageLoader,
+            context = context,
+            dao = dao,
+            isCompleted = completedExercises.contains(routineEx.exerciseId),
+            nextExerciseName = nextExercise?.let {
+                exercisesMap[it.exerciseId]?.name ?: it.name
+            },
+            onComplete = {
+                completedExercises = completedExercises + routineEx.exerciseId
+                SyncWorkoutWorker.scheduleSync(context)
+                if (nextExercise != null) {
+                    activeWorkoutExercise = Pair(nextExercise, exercisesMap[nextExercise.exerciseId])
+                } else {
+                    activeWorkoutExercise = null
+                }
+            },
+            onSetSaved = {
+                restTimerSeconds = 90
+                isRestTimerRunning = true
+                SyncWorkoutWorker.scheduleSync(context)
+            },
+            onDismiss = { activeWorkoutExercise = null }
         )
     }
 
@@ -617,6 +660,433 @@ fun ClientDashboardScreen(
             },
             onDismiss = { showWarmupSheet = false }
         )
+    }
+}
+
+
+// ─── EXERCISE WORKOUT MODAL ───────────────────────────────────────────────────
+@Composable
+fun ExerciseWorkoutModal(
+    routineEx: RoutineExercise,
+    exercise: Exercise?,
+    exercisesMap: Map<String, Exercise>,
+    imageLoader: ImageLoader,
+    context: Context,
+    dao: com.tecti.gymaura.data.local.SetLogDao,
+    isCompleted: Boolean,
+    nextExerciseName: String?,
+    onComplete: () -> Unit,
+    onSetSaved: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val exName = routineEx.name.ifBlank { exercise?.name ?: routineEx.exerciseId }
+    val mediaUrl = routineEx.mediaUrl ?: exercise?.mediaUrl
+    val instructions = exercise?.instructions ?: routineEx.instructions
+    val totalSets = routineEx.sets.coerceAtLeast(1)
+
+    val prefs = context.getSharedPreferences("gymaura_prefs", 0)
+    var useKg by remember { mutableStateOf(prefs.getBoolean("use_kg_unit", true)) }
+
+    // Track each set completion: list of (weightKg, reps, done)
+    var setData by remember {
+        mutableStateOf(List(totalSets) { Triple(routineEx.targetWeightKg, routineEx.reps, false) })
+    }
+    var currentSetIndex by remember { mutableStateOf(0) }
+    var weightInput by remember { mutableStateOf(String.format("%.1f", routineEx.targetWeightKg)) }
+    var repsInput by remember { mutableStateOf(routineEx.reps.toString()) }
+    var saving by remember { mutableStateOf(false) }
+
+    // Load last performance
+    LaunchedEffect(routineEx.exerciseId) {
+        val local = dao.getLastSetForExercise(routineEx.exerciseId)
+        local?.let {
+            val w = if (useKg) it.weightKg else it.weightKg / 0.453592
+            weightInput = String.format("%.1f", w)
+            repsInput = it.reps.toString()
+        }
+    }
+
+    fun displayToKg(): Double {
+        val v = weightInput.toDoubleOrNull() ?: 0.0
+        return if (useKg) v else v * 0.453592
+    }
+
+    val allSetsDone = setData.all { it.third }
+    val scrollState = rememberScrollState()
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(8.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+
+                // ── Header ──────────────────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (mediaUrl != null) 200.dp else 80.dp)
+                ) {
+                    if (mediaUrl != null) {
+                        coil.compose.AsyncImage(
+                            model = ImageRequest.Builder(context).data(mediaUrl).crossfade(true).build(),
+                            imageLoader = imageLoader,
+                            contentDescription = exName,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                        // Gradient overlay at bottom
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(Color.Transparent, Color.White),
+                                        startY = 100f
+                                    )
+                                )
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(AppleBlue.copy(alpha = 0.15f), AppleTeal.copy(alpha = 0.1f))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = AppleBlue, modifier = Modifier.size(56.dp))
+                        }
+                    }
+
+                    // Close button
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.85f))
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextPrimary, modifier = Modifier.size(18.dp))
+                    }
+
+                    // Completed badge
+                    if (isCompleted) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(8.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(AppleEmerald)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("✅ Completado", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // ── Scrollable content ───────────────────────────────────────
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                ) {
+                    // Exercise title
+                    Text(exName, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (routineEx.muscleGroup.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(AppleTeal.copy(alpha = 0.12f))
+                                    .padding(horizontal = 10.dp, vertical = 3.dp)
+                            ) {
+                                Text(routineEx.muscleGroup, fontSize = 12.sp, color = AppleTeal, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(AppleBlue.copy(alpha = 0.1f))
+                                .padding(horizontal = 10.dp, vertical = 3.dp)
+                        ) {
+                            Text("$totalSets series × ${routineEx.reps} reps", fontSize = 12.sp, color = AppleBlue, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider(color = GlassBorderWhite)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // ── SERIES TRACKER ─────────────────────────────────────
+                    Text("Series", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    setData.forEachIndexed { idx, (w, r, done) ->
+                        val isActive = idx == currentSetIndex && !allSetsDone
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    when {
+                                        done -> AppleEmerald.copy(alpha = 0.1f)
+                                        isActive -> AppleBlue.copy(alpha = 0.07f)
+                                        else -> GlassSurfaceWhite
+                                    }
+                                )
+                                .border(
+                                    1.dp,
+                                    when {
+                                        done -> AppleEmerald.copy(alpha = 0.4f)
+                                        isActive -> AppleBlue.copy(alpha = 0.4f)
+                                        else -> GlassBorderWhite
+                                    },
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Set number circle
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            done -> AppleEmerald
+                                            isActive -> AppleBlue
+                                            else -> GlassBorderWhite
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (done) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                } else {
+                                    Text("${idx + 1}", fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                        color = if (isActive) Color.White else TextSecondary)
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Serie ${idx + 1}",
+                                    fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                    color = if (done) AppleEmerald else if (isActive) AppleBlue else TextSecondary
+                                )
+                                if (done) {
+                                    val wDisplay = if (useKg) "${String.format("%.1f", w)} kg" else "${String.format("%.1f", w / 0.453592)} lb"
+                                    Text("$wDisplay × $r reps ✓", fontSize = 12.sp, color = AppleEmerald)
+                                } else {
+                                    Text("Objetivo: ${routineEx.targetWeightKg}kg × ${routineEx.reps} reps",
+                                        fontSize = 12.sp, color = TextSecondary)
+                                }
+                            }
+                        }
+                    }
+
+                    // ── INPUT SECTION (current active set) ─────────────────
+                    if (!allSetsDone) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Registrar Serie ${currentSetIndex + 1}",
+                            fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // kg/lb toggle
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(GlassSurfaceWhite)
+                                .border(1.dp, GlassBorderWhite, RoundedCornerShape(10.dp))
+                                .padding(3.dp)
+                        ) {
+                            listOf(true to "kg", false to "lb").forEach { (isKg, label) ->
+                                Box(
+                                    modifier = Modifier.weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (useKg == isKg) AppleBlue else Color.Transparent)
+                                        .clickable { useKg = isKg; prefs.edit().putBoolean("use_kg_unit", isKg).apply() }
+                                        .padding(vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                        color = if (useKg == isKg) Color.White else TextSecondary)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = weightInput,
+                                onValueChange = { weightInput = it },
+                                label = { Text("Peso (${if (useKg) "kg" else "lb"})") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                ),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = repsInput,
+                                onValueChange = { repsInput = it },
+                                label = { Text("Reps") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                ),
+                                singleLine = true
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // LOG SET button
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    saving = true
+                                    val weightKg = displayToKg()
+                                    val r = repsInput.toIntOrNull() ?: routineEx.reps
+                                    // Save locally
+                                    val entity = SetLogEntity(
+                                        exerciseId = routineEx.exerciseId,
+                                        exerciseName = exName,
+                                        weightKg = weightKg,
+                                        reps = r,
+                                        rpe = 7.0,
+                                        setNumber = currentSetIndex + 1,
+                                        isSynced = false
+                                    )
+                                    dao.insertSetLog(entity)
+                                    // Sync to server
+                                    if (ServerRepository.isLoggedIn()) {
+                                        try {
+                                            ServerRepository.logSetToServer(
+                                                exerciseId = routineEx.exerciseId,
+                                                exerciseName = exName,
+                                                setNumber = currentSetIndex + 1,
+                                                reps = r,
+                                                weightKg = weightKg,
+                                                rpe = 7.0,
+                                                sessionId = WorkoutForegroundService.sessionId
+                                            )
+                                            dao.markSynced(entity.id)
+                                        } catch (_: Exception) {}
+                                    }
+                                    // Mark this set as done
+                                    setData = setData.toMutableList().also { list ->
+                                        list[currentSetIndex] = Triple(weightKg, r, true)
+                                    }
+                                    if (currentSetIndex < totalSets - 1) {
+                                        currentSetIndex++
+                                        // Pre-fill next set with same values
+                                        weightInput = String.format("%.1f", if (useKg) weightKg else weightKg / 0.453592)
+                                        repsInput = r.toString()
+                                    }
+                                    saving = false
+                                    onSetSaved()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppleBlue),
+                            enabled = !saving && weightInput.isNotBlank() && repsInput.isNotBlank()
+                        ) {
+                            if (saving) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.AddCircle, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("✓ Registrar Serie ${currentSetIndex + 1}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // ── Instructions ───────────────────────────────────────
+                    if (!instructions.isNullOrBlank()) {
+                        Divider(color = GlassBorderWhite)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Instrucciones", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val steps = instructions.split(". ").filter { it.isNotBlank() }
+                        steps.forEachIndexed { i, step ->
+                            Row(
+                                modifier = Modifier.padding(bottom = 6.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(AppleBlue.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("${i + 1}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AppleBlue)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(step.trim().trimEnd('.'), fontSize = 13.sp, color = TextSecondary, modifier = Modifier.weight(1f))
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // ── COMPLETE / NEXT buttons ────────────────────────────
+                    if (allSetsDone || isCompleted) {
+                        Button(
+                            onClick = onComplete,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppleEmerald),
+                            enabled = !isCompleted
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isCompleted) "✅ Ejercicio Completado" else
+                                    if (nextExerciseName != null) "Completar → $nextExerciseName" else "✅ Finalizar Ejercicio",
+                                fontWeight = FontWeight.Bold, fontSize = 15.sp
+                            )
+                        }
+                    } else {
+                        // Skip/complete early button (outline)
+                        OutlinedButton(
+                            onClick = onComplete,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, AppleEmerald.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = if (nextExerciseName != null) "Marcar completo → $nextExerciseName" else "Marcar como completado",
+                                color = AppleEmerald, fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+            }
+        }
     }
 }
 
