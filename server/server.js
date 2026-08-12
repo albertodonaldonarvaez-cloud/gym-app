@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 const rateLimit = require('express-rate-limit');
+const { execFile } = require('child_process');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -849,13 +850,18 @@ app.post('/api/v1/coach/exercises/custom', authMiddleware, coachOnly, async (req
       const serverBase = process.env.SERVER_URL || 'https://gym-app.tecti-cloud.com';
 
       // Try yt-dlp (installed in Docker), fall back to direct URL
-      const ytdlp = execFile('yt-dlp', [
-        '-f', 'mp4/best[ext=mp4]/best',
-        '-o', outputPath,
+      const ytArgs = [
         '--no-playlist',
-        '--max-filesize', '50m',
+        '--max-filesize', '100m',
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        '--merge-output-format', 'mp4',
+        '-o', outputPath,
+        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--add-header', 'Referer:https://www.tiktok.com/',
+        '--extractor-args', 'tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com',
         videoUrl
-      ], { timeout: 120000 }, async (err) => {
+      ];
+      const ytdlp = execFile('yt-dlp', ytArgs, { timeout: 120000 }, async (err) => {
         if (!err && fs.existsSync(outputPath)) {
           const hostedUrl = `${serverBase}/uploads/exercises/${exercise.id}.mp4`;
           await prisma.exercise.update({
@@ -890,6 +896,35 @@ app.get('/api/v1/coach/exercises/custom', authMiddleware, coachOnly, async (req,
     });
     res.json(exercises);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── TEST ENDPOINT (dev only) ────────────────────────────────────────────────
+// GET /api/v1/admin/test-ytdlp
+// Protected by authMiddleware + adminOnly in production; open in non-production.
+app.get('/api/v1/admin/test-ytdlp', authMiddleware, adminOnly, async (req, res) => {
+  const testUrl = 'https://www.tiktok.com/@the_cat_black_rebel/video/7643329342075849991?is_from_webapp=1&sender_device=pc';
+  const tmpOut = '/tmp/test_video.mp4';
+  const ytArgs = [
+    '--no-playlist',
+    '--max-filesize', '100m',
+    '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+    '--merge-output-format', 'mp4',
+    '-o', tmpOut,
+    '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    '--add-header', 'Referer:https://www.tiktok.com/',
+    '--extractor-args', 'tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com',
+    testUrl
+  ];
+  execFile('yt-dlp', ytArgs, { timeout: 120000 }, (err, stdout, stderr) => {
+    const fileExists = fs.existsSync(tmpOut);
+    res.json({
+      success: !err && fileExists,
+      fileExists,
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: err ? err.message : null
+    });
+  });
 });
 
 // Start Server
