@@ -48,7 +48,6 @@ object ServerRepository {
 
     private var _appContext: Context? = null
 
-    // Initialize with context (call from Application class)
     fun init(context: Context) {
         _appContext = context.applicationContext
     }
@@ -296,6 +295,7 @@ object ServerRepository {
             if (resp.isSuccessful) resp.body() else null
         } catch (e: Exception) { Log.e(TAG, "assignTemplate error: ${e.message}"); null }
     }
+
     // ─── OFFLINE CACHE ────────────────────────────────────────────────────────────
     private fun getDb(): AppDatabase = AppDatabase.getDatabase(_appContext!!)
 
@@ -325,7 +325,6 @@ object ServerRepository {
             getDb().warmupSessionDao().insert(
                 com.tecti.gymaura.data.local.WarmupSessionEntity(id = localId, startedAt = startedAt)
             )
-            // Try server sync
             try {
                 val resp = api().startWarmup(authHeader(), mapOf("startedAt" to java.util.Date(startedAt).toString()))
                 if (resp.isSuccessful) resp.body()?.get("id")?.toString() else localId
@@ -341,7 +340,6 @@ object ServerRepository {
                     finishedAt = System.currentTimeMillis(), isSynced = false
                 )
             )
-            // Try server
             val body = mapOf("warmupId" to warmupId, "durationSec" to durationSec, "notes" to notes)
             try { api().finishWarmup(authHeader(), body) } catch (_: Exception) {}
         } catch (e: Exception) { Log.e(TAG, "finishWarmup: ${e.message}") }
@@ -366,6 +364,35 @@ object ServerRepository {
             val resp = api().saveWorkoutSession(authHeader(), body)
             resp.isSuccessful
         } catch (e: Exception) { Log.e(TAG, "saveWorkoutSession: ${e.message}"); false }
+    }
+
+    // ─── INSTANT SET SYNC ─────────────────────────────────────────────────────────
+    /** Sube una serie completada al servidor en tiempo real para generar historial. */
+    suspend fun logSetToServer(
+        exerciseId: String,
+        exerciseName: String,
+        setNumber: Int,
+        reps: Int,
+        weightKg: Double,
+        rpe: Double,
+        sessionId: String
+    ): Boolean {
+        return try {
+            val dto = ApiService.SyncSetDto(
+                clientLogId = java.util.UUID.randomUUID().toString(),
+                exerciseId = exerciseId,
+                exerciseName = exerciseName,
+                setNumber = setNumber,
+                reps = reps,
+                weightKg = weightKg,
+                rpe = rpe,
+                sessionId = sessionId.ifBlank { "session_${System.currentTimeMillis()}" },
+                dayName = "",
+                performedAt = java.util.Date().toString()
+            )
+            val resp = api().syncWorkouts(authHeader(), ApiService.SyncRequest(listOf(dto)))
+            resp.isSuccessful
+        } catch (e: Exception) { Log.e(TAG, "logSetToServer: ${e.message}"); false }
     }
 
     // ─── CUSTOM EXERCISES ─────────────────────────────────────────────────────────

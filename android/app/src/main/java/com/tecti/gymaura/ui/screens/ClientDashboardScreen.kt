@@ -274,14 +274,24 @@ fun ClientDashboardScreen(
             }
         }
 
-        // ─── COMPACT WARMUP ───────────────────────────────────────────────────
+        // ─── COMPACT WARMUP (solo disponible si la sesión está activa) ──────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 12.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(if (isWarmingUp) Color(0xFFFF9800).copy(alpha=0.1f) else GlassSurfaceWhite)
-                .border(1.dp, if (isWarmingUp) Color(0xFFFF9800).copy(alpha=0.3f) else GlassBorderWhite, RoundedCornerShape(12.dp))
+                .background(
+                    when {
+                        isWarmingUp -> Color(0xFFFF9800).copy(alpha = 0.1f)
+                        !isWorkoutActive -> GlassSurfaceWhite.copy(alpha = 0.5f)
+                        else -> GlassSurfaceWhite
+                    }
+                )
+                .border(
+                    1.dp,
+                    if (isWarmingUp) Color(0xFFFF9800).copy(alpha = 0.3f) else GlassBorderWhite,
+                    RoundedCornerShape(12.dp)
+                )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -289,19 +299,30 @@ fun ClientDashboardScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("🔥", fontSize = 16.sp)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isWarmingUp) "Calentando: ${formatWarmupTime(warmupElapsedSec)}" else "Calentar antes de entrenar",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isWarmingUp) Color(0xFFFF9800) else TextPrimary
-                )
+                Column {
+                    Text(
+                        text = if (isWarmingUp) "Calentando: ${formatWarmupTime(warmupElapsedSec)}" else "Calentar",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isWarmingUp) Color(0xFFFF9800) else if (!isWorkoutActive) TextSecondary else TextPrimary
+                    )
+                    if (!isWorkoutActive && !isWarmingUp) {
+                        Text(
+                            text = "Inicia sesión primero",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
             }
             Text(
                 text = if (isWarmingUp) "Terminar" else "Iniciar",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isWarmingUp) Color(0xFFFF9800) else AppleOrange,
-                modifier = Modifier.clickable {
+                color = if (!isWorkoutActive && !isWarmingUp) TextSecondary
+                        else if (isWarmingUp) Color(0xFFFF9800)
+                        else AppleOrange,
+                modifier = Modifier.clickable(enabled = isWorkoutActive || isWarmingUp) {
                     if (isWarmingUp) {
                         showWarmupSheet = true
                     } else {
@@ -822,6 +843,23 @@ fun SetLogModal(
                                 isSynced = false
                             )
                             dao.insertSetLog(entity)
+                            // ── Sync to server immediately if online ──────────
+                            if (ServerRepository.isLoggedIn()) {
+                                try {
+                                    ServerRepository.logSetToServer(
+                                        exerciseId = exercise.id,
+                                        exerciseName = exercise.name,
+                                        setNumber = setNumber,
+                                        reps = r,
+                                        weightKg = weightKg,
+                                        rpe = rpeVal,
+                                        sessionId = WorkoutForegroundService.sessionId
+                                    )
+                                    dao.markSynced(entity.id)
+                                } catch (e: Exception) {
+                                    // Will retry next sync cycle — set stays as isSynced=false
+                                }
+                            }
                             onSaved(weightKg, r, rpeVal, setNumber)
                         }
                     },

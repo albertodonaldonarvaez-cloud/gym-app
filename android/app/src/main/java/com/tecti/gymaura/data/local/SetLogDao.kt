@@ -30,6 +30,9 @@ interface SetLogDao {
     @Query("SELECT COUNT(*) FROM set_logs")
     suspend fun count(): Int
 
+    @Query("UPDATE set_logs SET isSynced = 1 WHERE id = :id")
+    suspend fun markSynced(id: String)
+
     @Query("DELETE FROM set_logs")
     suspend fun deleteAll()
 }
