@@ -21,8 +21,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tecti.gymaura.data.model.UserRole
@@ -178,35 +182,44 @@ fun GlassTopAppBar(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // App Title Logo
+            // ⚡ Brand logo with gradient text
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Lightning bolt icon in gradient box
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(AppleBlue),
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(AppleBlue, AppleTeal)
+                            )
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.FitnessCenter,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Text("⚡", fontSize = 18.sp)
                 }
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                // Gradient brand name
                 Text(
-                    text = "GymAura",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = TextPrimary
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(
+                            brush = Brush.linearGradient(colors = listOf(AppleBlue, AppleTeal)),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 20.sp
+                        )) { append("Gym") }
+                        withStyle(SpanStyle(
+                            brush = Brush.linearGradient(colors = listOf(AppleTeal, AppleEmerald)),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 20.sp
+                        )) { append("Aura") }
+                    }
                 )
             }
 
@@ -217,30 +230,30 @@ fun GlassTopAppBar(
                         text = userName,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1
                     )
-                    
                     val (roleText, roleColor) = when (currentRole) {
                         UserRole.CLIENT -> "Atleta" to AppleBlue
                         UserRole.COACH -> "Coach" to AppleIndigo
                         UserRole.ADMIN -> "Admin" to AppleOrange
                     }
-                    
-                    Text(
-                        text = roleText,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = roleColor
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(if (isConnected) AppleEmerald else AppleOrange)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = roleText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = roleColor
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                // Connection dot
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (isConnected) AppleEmerald else AppleOrange)
-                )
             }
         }
     }

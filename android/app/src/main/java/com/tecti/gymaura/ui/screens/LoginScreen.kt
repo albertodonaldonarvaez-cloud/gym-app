@@ -13,10 +13,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tecti.gymaura.data.remote.ServerRepository
@@ -48,31 +52,39 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // App Logo
+            // ⚡ Brand Logo
             Box(
                 modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(AppleBlue),
+                    .size(88.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(AppleBlue, AppleTeal, AppleEmerald)
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.FitnessCenter,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(40.dp)
-                )
+                Text("⚡", fontSize = 44.sp)
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+            // Gradient brand name
             Text(
-                text = "GymAura",
-                fontSize = 32.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextPrimary
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(
+                        brush = Brush.linearGradient(colors = listOf(AppleBlue, AppleTeal)),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 36.sp
+                    )) { append("Gym") }
+                    withStyle(SpanStyle(
+                        brush = Brush.linearGradient(colors = listOf(AppleTeal, AppleEmerald)),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 36.sp
+                    )) { append("Aura") }
+                }
             )
             Text(
-                text = "Inicia sesión para continuar",
-                fontSize = 16.sp,
+                text = "Entrena. Registra. Supera.",
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 color = TextSecondary
             )

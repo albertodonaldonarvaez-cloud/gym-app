@@ -210,39 +210,56 @@ fun ClientDashboardScreen(
                     fontSize = 13.sp, color = if (isWorkoutActive) AppleEmerald else TextSecondary
                 )
             }
-            // Workout start/stop button
-            GlassButton(
-                text = if (isWorkoutActive) "Finalizar" else "Iniciar",
-                gradientColors = if (isWorkoutActive) listOf(AppleRose, AppleOrange) else listOf(AppleEmerald, AppleTeal),
-                onClick = {
-                    if (isWorkoutActive) {
-                        val stopIntent = Intent(context, WorkoutForegroundService::class.java).apply {
-                            action = WorkoutForegroundService.ACTION_STOP
+            // Circular Play/Stop FAB
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = if (isWorkoutActive)
+                                listOf(AppleRose, AppleOrange)
+                            else
+                                listOf(AppleEmerald, AppleTeal)
+                        )
+                    )
+                    .clickable {
+                        if (isWorkoutActive) {
+                            val stopIntent = Intent(context, WorkoutForegroundService::class.java).apply {
+                                action = WorkoutForegroundService.ACTION_STOP
+                            }
+                            context.startService(stopIntent)
+                            isWorkoutActive = false
+                            scope.launch {
+                                val sessionId = WorkoutForegroundService.sessionId
+                                val startTime = WorkoutForegroundService.sessionStartTime
+                                val duration = WorkoutForegroundService.elapsedSeconds
+                                ServerRepository.saveWorkoutSession(
+                                    sessionId, WorkoutForegroundService.sessionDayName,
+                                    startTime, System.currentTimeMillis(), duration
+                                )
+                            }
+                        } else {
+                            val todayDay = listOf("Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo")
+                            val dayIdx = (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+                            val dayName = todayDay[dayIdx]
+                            val startIntent = Intent(context, WorkoutForegroundService::class.java).apply {
+                                action = WorkoutForegroundService.ACTION_START
+                                putExtra("dayName", dayName)
+                            }
+                            context.startForegroundService(startIntent)
+                            isWorkoutActive = true
                         }
-                        context.startService(stopIntent)
-                        isWorkoutActive = false
-                        scope.launch {
-                            val sessionId = WorkoutForegroundService.sessionId
-                            val startTime = WorkoutForegroundService.sessionStartTime
-                            val duration = WorkoutForegroundService.elapsedSeconds
-                            ServerRepository.saveWorkoutSession(
-                                sessionId, WorkoutForegroundService.sessionDayName,
-                                startTime, System.currentTimeMillis(), duration
-                            )
-                        }
-                    } else {
-                        val todayDay = listOf("Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo")
-                        val dayIdx = (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
-                        val dayName = todayDay[dayIdx]
-                        val startIntent = Intent(context, WorkoutForegroundService::class.java).apply {
-                            action = WorkoutForegroundService.ACTION_START
-                            putExtra("dayName", dayName)
-                        }
-                        context.startForegroundService(startIntent)
-                        isWorkoutActive = true
-                    }
-                }
-            )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isWorkoutActive) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    contentDescription = if (isWorkoutActive) "Finalizar" else "Iniciar entrenamiento",
+                    tint = Color.White,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
         }
 
         // ─── REST TIMER ───────────────────────────────────────────────────────
@@ -319,27 +336,58 @@ fun ClientDashboardScreen(
                     }
                 }
             }
-            Text(
-                text = if (isWarmingUp) "Terminar" else "Iniciar",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (!isWorkoutActive && !isWarmingUp) TextSecondary
-                        else if (isWarmingUp) Color(0xFFFF9800)
-                        else AppleOrange,
-                modifier = Modifier.clickable(enabled = isWorkoutActive || isWarmingUp) {
-                    if (isWarmingUp) {
-                        showWarmupSheet = true
-                    } else {
-                        scope.launch {
-                            warmupStartTime = System.currentTimeMillis()
-                            warmupElapsedSec = 0
-                            isWarmingUp = true
-                            val id = ServerRepository.startWarmup(warmupStartTime)
-                            warmupId = id
-                        }
+            // Warmup action button — pill with play icon
+            if (isWarmingUp) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xFFFF9800).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFFFF9800).copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                        .clickable { showWarmupSheet = true }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Stop, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Terminar", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFF9800))
                     }
                 }
-            )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            if (isWorkoutActive) AppleOrange
+                            else GlassBorderWhite
+                        )
+                        .clickable(enabled = isWorkoutActive) {
+                            scope.launch {
+                                warmupStartTime = System.currentTimeMillis()
+                                warmupElapsedSec = 0
+                                isWarmingUp = true
+                                val id = ServerRepository.startWarmup(warmupStartTime)
+                                warmupId = id
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = if (isWorkoutActive) Color.White else TextSecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "Iniciar",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isWorkoutActive) Color.White else TextSecondary
+                        )
+                    }
+                }
+            }
         }
 
         // ─── DAYS BAR ─────────────────────────────────────────────────────────

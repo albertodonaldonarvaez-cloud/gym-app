@@ -1399,42 +1399,44 @@ fun UploadCustomExerciseModal(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Category + Equipment row
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExposedDropdownMenuBox(
-                        expanded = expandCategory,
-                        onExpandedChange = { expandCategory = !expandCategory },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        OutlinedTextField(
-                            value = category, onValueChange = {},
-                            label = { Text("Categoría") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandCategory) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            shape = RoundedCornerShape(14.dp), readOnly = true
-                        )
-                        ExposedDropdownMenu(expanded = expandCategory, onDismissRequest = { expandCategory = false }) {
-                            categoryOptions.forEach { opt ->
-                                DropdownMenuItem(text = { Text(opt) }, onClick = { category = opt; expandCategory = false })
-                            }
+                // Category row
+                ExposedDropdownMenuBox(
+                    expanded = expandCategory,
+                    onExpandedChange = { expandCategory = !expandCategory },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = category, onValueChange = {},
+                        label = { Text("Categoría") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandCategory) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        shape = RoundedCornerShape(14.dp), readOnly = true, singleLine = true
+                    )
+                    ExposedDropdownMenu(expanded = expandCategory, onDismissRequest = { expandCategory = false }) {
+                        categoryOptions.forEach { opt ->
+                            DropdownMenuItem(text = { Text(opt) }, onClick = { category = opt; expandCategory = false })
                         }
                     }
-                    ExposedDropdownMenuBox(
-                        expanded = expandEquipment,
-                        onExpandedChange = { expandEquipment = !expandEquipment },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        OutlinedTextField(
-                            value = equipment, onValueChange = {},
-                            label = { Text("Equipo") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandEquipment) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            shape = RoundedCornerShape(14.dp), readOnly = true
-                        )
-                        ExposedDropdownMenu(expanded = expandEquipment, onDismissRequest = { expandEquipment = false }) {
-                            equipmentOptions.forEach { opt ->
-                                DropdownMenuItem(text = { Text(opt) }, onClick = { equipment = opt; expandEquipment = false })
-                            }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Equipment row
+                ExposedDropdownMenuBox(
+                    expanded = expandEquipment,
+                    onExpandedChange = { expandEquipment = !expandEquipment },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = equipment, onValueChange = {},
+                        label = { Text("Equipo") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandEquipment) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        shape = RoundedCornerShape(14.dp), readOnly = true, singleLine = true
+                    )
+                    ExposedDropdownMenu(expanded = expandEquipment, onDismissRequest = { expandEquipment = false }) {
+                        equipmentOptions.forEach { opt ->
+                            DropdownMenuItem(text = { Text(opt) }, onClick = { equipment = opt; expandEquipment = false })
                         }
                     }
                 }
