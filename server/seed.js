@@ -7,6 +7,13 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding GymAura database...');
 
+  // ── FAST CHECK: skip if already seeded ────────────────────────────────────
+  const existingAdmin = await prisma.user.findUnique({ where: { email: 'admin@gymaura.com' } });
+  if (existingAdmin) {
+    console.log('✅ Seed skipped — users already exist in DB.');
+    return;
+  }
+
   // ── 1. Poblar ejercicios desde Free Exercise DB (idempotente) ──
   await seedExercises();
 

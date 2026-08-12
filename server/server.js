@@ -824,8 +824,6 @@ app.post('/api/v1/workouts/session', authMiddleware, async (req, res) => {
 // ─── CUSTOM EXERCISES (with video URL / yt-dlp) ───────────────────────────────
 
 const { execFile } = require('child_process');
-const path = require('path');
-const fs = require('fs');
 
 // Upload directory for exercise videos
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
