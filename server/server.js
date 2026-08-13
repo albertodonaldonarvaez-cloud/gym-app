@@ -294,7 +294,8 @@ app.get('/api/v1/routines/current-week', authMiddleware, async (req, res) => {
           if (exData) {
             ex.name = exData.name;
             ex.mediaUrl = exData.mediaUrl || null;
-            ex.muscleGroup = exData.muscleGroup;
+            ex.muscleGroup = exData.muscleGroup || '';
+            ex.instructions = exData.instructions || '';
           }
         }
       }
@@ -925,6 +926,78 @@ app.get('/api/v1/admin/test-ytdlp', authMiddleware, adminOnly, async (req, res) 
       error: err ? err.message : null
     });
   });
+});
+
+// ─── BULK MEDIA DOWNLOAD ─────────────────────────────────────────────────────
+// POST /api/v1/admin/download-missing-media
+// Downloads GIFs/videos for exercises that have no local mediaUrl yet.
+// Exercises from hasaneyldrm dataset have raw GitHub GIF URLs — we keep those as-is
+// (Coil loads them directly). Only exercises with TikTok/YouTube videoUrls need yt-dlp.
+app.post('/api/v1/admin/download-missing-media', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const limit = parseInt(req.body?.limit) || 50;
+    const serverBase = process.env.SERVER_URL || 'https://gym-app.tecti-cloud.com';
+
+    // Find exercises with videoUrl but no local mediaUrl
+    const pending = await prisma.exercise.findMany({
+      where: {
+        videoUrl: { not: null },
+        OR: [
+          { mediaUrl: null },
+          { mediaUrl: { startsWith: 'http', not: { startsWith: serverBase } } }
+        ]
+      },
+      take: limit,
+      orderBy: { createdAt: 'asc' }
+    });
+
+    res.json({ message: `Starting download for ${pending.length} exercises`, ids: pending.map(e => e.id) });
+
+    // Background downloads
+    for (const ex of pending) {
+      const outputPath = path.join(UPLOADS_DIR, `${ex.id}.mp4`);
+      if (fs.existsSync(outputPath)) {
+        // Already downloaded, just update DB
+        const hostedUrl = `${serverBase}/uploads/exercises/${ex.id}.mp4`;
+        await prisma.exercise.update({ where: { id: ex.id }, data: { mediaUrl: hostedUrl } }).catch(() => {});
+        continue;
+      }
+      const ytArgs = [
+        '--no-playlist', '--max-filesize', '100m',
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        '--merge-output-format', 'mp4',
+        '-o', outputPath,
+        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--add-header', 'Referer:https://www.tiktok.com/',
+        '--extractor-args', 'tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com',
+        ex.videoUrl
+      ];
+      execFile('yt-dlp', ytArgs, { timeout: 180000 }, async (err) => {
+        if (!err && fs.existsSync(outputPath)) {
+          const hostedUrl = `${serverBase}/uploads/exercises/${ex.id}.mp4`;
+          await prisma.exercise.update({ where: { id: ex.id }, data: { mediaUrl: hostedUrl } }).catch(() => {});
+          console.log(`✅ Media downloaded: ${ex.name} (${ex.id})`);
+        } else {
+          console.log(`⚠️ Download failed for ${ex.name}: ${err?.message}`);
+        }
+      });
+      // Small delay between downloads to avoid rate limiting
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// GET /api/v1/admin/media-status — check how many exercises have/lack mediaUrl
+app.get('/api/v1/admin/media-status', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const total = await prisma.exercise.count();
+    const withMedia = await prisma.exercise.count({ where: { mediaUrl: { not: null } } });
+    const withVideoUrl = await prisma.exercise.count({ where: { videoUrl: { not: null } } });
+    const pending = await prisma.exercise.count({
+      where: { videoUrl: { not: null }, mediaUrl: null }
+    });
+    res.json({ total, withMedia, withVideoUrl, pendingDownload: pending });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Start Server

@@ -86,9 +86,12 @@ fun ClientDashboardScreen(
     var restTimerSeconds by remember { mutableStateOf(0) }
     var isRestTimerRunning by remember { mutableStateOf(false) }
 
-    // Guided workout flow
-    var completedExercises by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Guided workout flow — persists across modal opens and screen rotation
+    var completedExerciseIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    val completedExercises: Set<String> get() = completedExerciseIds.toSet()
     var activeWorkoutExercise by remember { mutableStateOf<Pair<RoutineExercise, Exercise?>?>(null) }
+    // Persist set progress per exercise: exerciseId -> list of (weightKg, reps, done)
+    var exerciseSetProgress by remember { mutableStateOf<Map<String, List<Triple<Double, Int, Boolean>>>>(emptyMap()) }
 
     // State for warmup
     var showWarmupSheet by remember { mutableStateOf(false) }
@@ -322,14 +325,14 @@ fun ClientDashboardScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = if (isWarmingUp) "Calentando: ${formatWarmupTime(warmupElapsedSec)}" else "Calentar",
+                        text = if (isWarmingUp) "Calentando: ${formatWarmupTime(warmupElapsedSec)}" else "Calentar antes de entrenar",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isWarmingUp) Color(0xFFFF9800) else if (!isWorkoutActive) TextSecondary else TextPrimary
                     )
                     if (!isWorkoutActive && !isWarmingUp) {
                         Text(
-                            text = "Inicia sesión primero",
+                            text = "Activa tu entrenamiento con ▶",
                             fontSize = 11.sp,
                             color = TextSecondary
                         )
@@ -466,8 +469,13 @@ fun ClientDashboardScreen(
                                     fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppleBlue
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
+                                val focusLabel = daySchedule?.focus
+                                    ?.takeIf { it.isNotBlank() && it != "Sin asignar" }
+                                    ?: weeklyRoutine?.title
+                                    ?.takeIf { it.isNotBlank() && it != "Sin asignar" }
+                                    ?: "Rutina General"
                                 Text(
-                                    text = daySchedule?.focus ?: "Rutina General",
+                                    text = focusLabel,
                                     fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary
                                 )
                             }
@@ -499,28 +507,34 @@ fun ClientDashboardScreen(
                         }
                     }
                 } else {
-                    // Progress bar
-                    if (isWorkoutActive && routineExercises.isNotEmpty()) {
-                        item {
-                            val done = completedExercises.size
-                            val total = routineExercises.size
-                            val progress = done.toFloat() / total.toFloat()
-                            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Progreso", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
-                                    Text("$done / $total ejercicios", fontSize = 12.sp, color = if (done == total) AppleEmerald else AppleBlue, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { progress },
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                                    color = if (done == total) AppleEmerald else AppleBlue,
-                                    trackColor = GlassBorderWhite
+                    // Progress bar — always visible when there are exercises
+                    item {
+                        val done = completedExercises.count { routineExercises.any { ex -> ex.exerciseId == it } }
+                        val total = routineExercises.size
+                        val progress = if (total > 0) done.toFloat() / total.toFloat() else 0f
+                        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = if (isWorkoutActive) "Progreso de hoy" else "Completados",
+                                    fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "$done / $total ejercicios",
+                                    fontSize = 12.sp,
+                                    color = if (done == total && total > 0) AppleEmerald else AppleBlue,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                color = if (done == total && total > 0) AppleEmerald else AppleBlue,
+                                trackColor = GlassBorderWhite
+                            )
                         }
                     }
 
@@ -670,17 +684,24 @@ fun ClientDashboardScreen(
             context = context,
             dao = dao,
             isCompleted = completedExercises.contains(routineEx.exerciseId),
+            savedProgress = exerciseSetProgress[routineEx.exerciseId],
             nextExerciseName = nextExercise?.let {
                 exercisesMap[it.exerciseId]?.name ?: it.name
             },
             onComplete = {
-                completedExercises = completedExercises + routineEx.exerciseId
+                val id = routineEx.exerciseId
+                if (!completedExerciseIds.contains(id)) {
+                    completedExerciseIds = completedExerciseIds + id
+                }
                 SyncWorkoutWorker.scheduleSync(context)
                 if (nextExercise != null) {
                     activeWorkoutExercise = Pair(nextExercise, exercisesMap[nextExercise.exerciseId])
                 } else {
                     activeWorkoutExercise = null
                 }
+            },
+            onProgressUpdate = { updatedProgress ->
+                exerciseSetProgress = exerciseSetProgress + (routineEx.exerciseId to updatedProgress)
             },
             onSetSaved = {
                 restTimerSeconds = 90
@@ -690,6 +711,7 @@ fun ClientDashboardScreen(
             onDismiss = { activeWorkoutExercise = null }
         )
     }
+
 
     if (showWarmupSheet) {
         WarmupFinishDialog(
@@ -722,8 +744,10 @@ fun ExerciseWorkoutModal(
     context: Context,
     dao: com.tecti.gymaura.data.local.SetLogDao,
     isCompleted: Boolean,
+    savedProgress: List<Triple<Double, Int, Boolean>>?,  // restored when modal reopens
     nextExerciseName: String?,
     onComplete: () -> Unit,
+    onProgressUpdate: (List<Triple<Double, Int, Boolean>>) -> Unit,
     onSetSaved: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -736,22 +760,40 @@ fun ExerciseWorkoutModal(
     val prefs = context.getSharedPreferences("gymaura_prefs", 0)
     var useKg by remember { mutableStateOf(prefs.getBoolean("use_kg_unit", true)) }
 
-    // Track each set completion: list of (weightKg, reps, done)
+    // Restore set progress if modal was previously closed
     var setData by remember {
-        mutableStateOf(List(totalSets) { Triple(routineEx.targetWeightKg, routineEx.reps, false) })
+        mutableStateOf(
+            savedProgress?.takeIf { it.size == totalSets }
+                ?: List(totalSets) { Triple(routineEx.targetWeightKg, routineEx.reps, false) }
+        )
     }
-    var currentSetIndex by remember { mutableStateOf(0) }
+    // Start from the first incomplete set
+    var currentSetIndex by remember {
+        mutableStateOf(
+            savedProgress?.indexOfFirst { !it.third }?.takeIf { it >= 0 }
+                ?: 0
+        )
+    }
     var weightInput by remember { mutableStateOf(String.format("%.1f", routineEx.targetWeightKg)) }
     var repsInput by remember { mutableStateOf(routineEx.reps.toString()) }
     var saving by remember { mutableStateOf(false) }
 
-    // Load last performance
+    // Load last performance (only if no saved progress)
     LaunchedEffect(routineEx.exerciseId) {
-        val local = dao.getLastSetForExercise(routineEx.exerciseId)
-        local?.let {
-            val w = if (useKg) it.weightKg else it.weightKg / 0.453592
-            weightInput = String.format("%.1f", w)
-            repsInput = it.reps.toString()
+        if (savedProgress == null || savedProgress.all { !it.third }) {
+            val local = dao.getLastSetForExercise(routineEx.exerciseId)
+            local?.let {
+                val w = if (useKg) it.weightKg else it.weightKg / 0.453592
+                weightInput = String.format("%.1f", w)
+                repsInput = it.reps.toString()
+            }
+        } else {
+            // Pre-fill with last completed set values
+            savedProgress.lastOrNull { it.third }?.let { (w, r, _) ->
+                val display = if (useKg) w else w / 0.453592
+                weightInput = String.format("%.1f", display)
+                repsInput = r.toString()
+            }
         }
     }
 
@@ -1039,10 +1081,12 @@ fun ExerciseWorkoutModal(
                                             dao.markSynced(entity.id)
                                         } catch (_: Exception) {}
                                     }
-                                    // Mark this set as done
-                                    setData = setData.toMutableList().also { list ->
+                                    // Mark this set as done and persist to parent
+                                    val newSetData = setData.toMutableList().also { list ->
                                         list[currentSetIndex] = Triple(weightKg, r, true)
                                     }
+                                    setData = newSetData
+                                    onProgressUpdate(newSetData)
                                     if (currentSetIndex < totalSets - 1) {
                                         currentSetIndex++
                                         // Pre-fill next set with same values
