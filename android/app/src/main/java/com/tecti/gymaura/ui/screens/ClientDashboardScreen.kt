@@ -88,7 +88,7 @@ fun ClientDashboardScreen(
 
     // Guided workout flow — persists across modal opens and screen rotation
     var completedExerciseIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
-    val completedExercises: Set<String> get() = completedExerciseIds.toSet()
+    val completedExercises = completedExerciseIds.toSet()
     var activeWorkoutExercise by remember { mutableStateOf<Pair<RoutineExercise, Exercise?>?>(null) }
     // Persist set progress per exercise: exerciseId -> list of (weightKg, reps, done)
     var exerciseSetProgress by remember { mutableStateOf<Map<String, List<Triple<Double, Int, Boolean>>>>(emptyMap()) }
