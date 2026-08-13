@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -509,7 +510,7 @@ fun ClientDashboardScreen(
                 } else {
                     // Progress bar — always visible when there are exercises
                     item {
-                        val done = completedExercises.count { routineExercises.any { ex -> ex.exerciseId == it } }
+                        val done = completedExercises.count { exId -> routineExercises.any { ex -> ex.exerciseId == exId } }
                         val total = routineExercises.size
                         val progress = if (total > 0) done.toFloat() / total.toFloat() else 0f
                         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
