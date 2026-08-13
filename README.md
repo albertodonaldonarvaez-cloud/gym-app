@@ -118,10 +118,40 @@ docker compose up -d --build
 
 | Rol | Email | Contraseña |
 |---|---|---|
-| Coach | `coach@gymaura.com` | `GymAura2025!` |
-| Cliente | `cliente@gymaura.com` | `GymAura2025!` |
+| Admin | `admin@gymaura.com` | `GymAura2025!` |
+| Coach | `coach@gymaura.com` | `Coach2025!` |
+| Cliente | `cliente@gymaura.com` | `Client2025!` |
 
 ---
+
+### 🔄 Actualizar el Servidor (cuando hay código nuevo)
+
+> ⚠️ **`docker restart` NO actualiza el código.** Solo reinicia el contenedor con la imagen vieja.
+> Para aplicar cambios del servidor siempre usar `--build`:
+
+```bash
+cd ~/gym-app && git pull origin main && docker compose up -d --build
+```
+
+### 🎬 Gestión de Media (GIFs/Videos de ejercicios)
+
+```bash
+# 1. Obtener token de admin
+TOKEN=$(curl -s -X POST https://TU-SERVIDOR/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@gymaura.com","password":"GymAura2025!"}' \
+  | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+# 2. Ver estado de medias
+curl https://TU-SERVIDOR/api/v1/admin/media-status \
+  -H "Authorization: Bearer $TOKEN"
+
+# 3. Descargar videos faltantes (yt-dlp en background)
+curl -X POST https://TU-SERVIDOR/api/v1/admin/download-missing-media \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 100}'
+```
 
 ## 📱 Aplicación Móvil Android (Kotlin)
 
@@ -144,14 +174,17 @@ El APK ejecutable se genera en:
 | Método | Endpoint | Descripción |
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Verificación de salud y estado del servidor |
+| `POST` | `/api/v1/auth/login` | Login — devuelve JWT token |
 | `GET` | `/api/exercises` | Lista de ejercicios (soporta `?category=` y `?search=`) |
 | `POST` | `/api/exercises` | Crear un nuevo ejercicio en el catálogo (Coach) |
+| `GET` | `/api/v1/routines/current-week` | Rutina semanal del cliente autenticado (con GIFs/instrucciones) |
 | `GET` | `/api/clients` | Obtener lista de clientes registrados |
 | `POST` | `/api/clients` | Registrar un nuevo cliente |
-| `GET` | `/api/routines/weekly/:clientId` | Consultar la rutina semanal de un cliente |
 | `POST` | `/api/routines/weekly` | Guardar/Actualizar la rutina semanal de un cliente |
 | `GET` | `/api/logs/:clientId` | Consultar marcas e historial de peso de un cliente |
 | `POST` | `/api/logs` | Registrar una serie/peso cargado (Cliente) |
+| `GET` | `/api/v1/admin/media-status` | Estado de descarga de GIFs/videos (Admin) |
+| `POST` | `/api/v1/admin/download-missing-media` | Descargar videos faltantes con yt-dlp (Admin) |
 
 ---
 
