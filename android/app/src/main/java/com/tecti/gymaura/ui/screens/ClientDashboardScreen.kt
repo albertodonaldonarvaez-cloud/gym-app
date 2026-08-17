@@ -39,8 +39,11 @@ import java.text.SimpleDateFormat
 import java.util.*
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tecti.gymaura.data.local.WarmupSessionEntity
 import com.tecti.gymaura.service.WorkoutForegroundService
+import com.tecti.gymaura.ui.viewmodel.WorkoutViewModel
+
 
 // ─── COIL IMAGE LOADER WITH GIF SUPPORT ───────────────────────────────────────
 fun buildCoilLoader(context: Context): ImageLoader {
@@ -67,6 +70,8 @@ fun ClientDashboardScreen(
     val dao = remember { db.setLogDao() }
     val imageLoader = remember { buildCoilLoader(context) }
     val scope = rememberCoroutineScope()
+    // ViewModel survives rotation — holds all workout state
+    val workoutViewModel: WorkoutViewModel = viewModel()
 
     val daysOfWeek = listOf("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
     val todayName = remember {
@@ -82,17 +87,11 @@ fun ClientDashboardScreen(
     var exercisesMap by remember { mutableStateOf<Map<String, Exercise>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
 
-    // Active workout mode state
+    // Workout state — from ViewModel (survives rotation)
     var logModalExercise by remember { mutableStateOf<Exercise?>(null) }
-    var restTimerSeconds by remember { mutableStateOf(0) }
-    var isRestTimerRunning by remember { mutableStateOf(false) }
-
-    // Guided workout flow — persists across modal opens and screen rotation
-    var completedExerciseIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
-    val completedExercises = completedExerciseIds.toSet()
-    var activeWorkoutExercise by remember { mutableStateOf<Pair<RoutineExercise, Exercise?>?>(null) }
-    // Persist set progress per exercise: exerciseId -> list of (weightKg, reps, done)
-    var exerciseSetProgress by remember { mutableStateOf<Map<String, List<Triple<Double, Int, Boolean>>>>(emptyMap()) }
+    val completedExercises = workoutViewModel.completedExercises
+    // Whether WorkoutActiveScreen is showing
+    var showWorkoutScreen by remember { mutableStateOf(workoutViewModel.activeExerciseId != null) }
 
     // State for warmup
     var showWarmupSheet by remember { mutableStateOf(false) }
@@ -127,16 +126,7 @@ fun ClientDashboardScreen(
 
 
 
-    // Rest timer
-    LaunchedEffect(isRestTimerRunning) {
-        if (isRestTimerRunning && restTimerSeconds > 0) {
-            while (restTimerSeconds > 0 && isRestTimerRunning) {
-                delay(1000)
-                restTimerSeconds--
-            }
-            isRestTimerRunning = false
-        }
-    }
+    // Rest timer is now managed by WorkoutViewModel.startRestTimer() coroutine
 
     fun formatTime(seconds: Int): String {
         val m = seconds / 60; val s = seconds % 60
@@ -266,12 +256,14 @@ fun ClientDashboardScreen(
             }
         }
 
-        // ─── REST TIMER ───────────────────────────────────────────────────────
-        AnimatedVisibility(visible = isRestTimerRunning || restTimerSeconds > 0) {
+        // ─── REST TIMER (from ViewModel) ─────────────────────────────────────
+        val vmRestSeconds = workoutViewModel.restTimerSeconds
+        val vmRestRunning = workoutViewModel.isRestTimerRunning
+        AnimatedVisibility(visible = vmRestRunning || vmRestSeconds > 0) {
             GlassCard(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                backgroundColor = if (restTimerSeconds > 10) AppleTeal.copy(alpha = 0.12f) else AppleOrange.copy(alpha = 0.12f),
-                borderColor = if (restTimerSeconds > 10) AppleTeal.copy(alpha = 0.3f) else AppleOrange.copy(alpha = 0.3f)
+                backgroundColor = if (vmRestSeconds > 10) AppleTeal.copy(alpha = 0.12f) else AppleOrange.copy(alpha = 0.12f),
+                borderColor = if (vmRestSeconds > 10) AppleTeal.copy(alpha = 0.3f) else AppleOrange.copy(alpha = 0.3f)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -279,20 +271,12 @@ fun ClientDashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Timer,
-                            contentDescription = null,
-                            tint = if (restTimerSeconds > 10) AppleTeal else AppleOrange,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.Timer, null, tint = if (vmRestSeconds > 10) AppleTeal else AppleOrange, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Descanso: ${formatTime(restTimerSeconds)}",
-                            fontWeight = FontWeight.Bold,
-                            color = if (restTimerSeconds > 10) AppleTeal else AppleOrange
-                        )
+                        Text("Descanso: ${formatTime(vmRestSeconds)}", fontWeight = FontWeight.Bold,
+                            color = if (vmRestSeconds > 10) AppleTeal else AppleOrange)
                     }
-                    IconButton(onClick = { restTimerSeconds = 0; isRestTimerRunning = false }) {
+                    IconButton(onClick = { workoutViewModel.cancelRestTimer() }) {
                         Icon(Icons.Default.Close, contentDescription = "Cancelar", tint = TextSecondary)
                     }
                 }
@@ -549,7 +533,8 @@ fun ClientDashboardScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    activeWorkoutExercise = Pair(routineEx, exercise)
+                                    workoutViewModel.openExercise(routineEx.exerciseId)
+                                    showWorkoutScreen = true
                                 },
                             backgroundColor = if (isDone) AppleEmerald.copy(alpha = 0.07f) else GlassSurfaceWhite,
                             borderColor = if (isDone) AppleEmerald.copy(alpha = 0.4f) else GlassBorderWhite
@@ -663,53 +648,24 @@ fun ClientDashboardScreen(
             onDismiss = { logModalExercise = null },
             onSaved = { weightKg, reps, rpe, setNumber ->
                 logModalExercise = null
-                restTimerSeconds = 90
-                isRestTimerRunning = true
+                workoutViewModel.startRestTimer(90)
                 SyncWorkoutWorker.scheduleSync(context)
             }
         )
     }
 
-    // ─── GUIDED EXERCISE WORKOUT MODAL ────────────────────────────────────────
-    activeWorkoutExercise?.let { (routineEx, exercise) ->
-        val allExercises = weeklyRoutine?.schedule?.get(selectedDay)?.exercises ?: emptyList()
-        val currentIndex = allExercises.indexOfFirst { it.exerciseId == routineEx.exerciseId }
-        val nextExercise = if (currentIndex >= 0 && currentIndex < allExercises.size - 1)
-            allExercises[currentIndex + 1] else null
-
-        ExerciseWorkoutModal(
-            routineEx = routineEx,
-            exercise = exercise,
+    // ─── WORKOUT ACTIVE SCREEN (full screen overlay) ──────────────────────────
+    if (showWorkoutScreen) {
+        val routineExercises = weeklyRoutine?.schedule?.get(selectedDay)?.exercises ?: emptyList()
+        WorkoutActiveScreen(
+            routineExercises = routineExercises,
             exercisesMap = exercisesMap,
             imageLoader = imageLoader,
-            context = context,
-            dao = dao,
-            isCompleted = completedExercises.contains(routineEx.exerciseId),
-            savedProgress = exerciseSetProgress[routineEx.exerciseId],
-            nextExerciseName = nextExercise?.let {
-                exercisesMap[it.exerciseId]?.name ?: it.name
-            },
-            onComplete = {
-                val id = routineEx.exerciseId
-                if (!completedExerciseIds.contains(id)) {
-                    completedExerciseIds = completedExerciseIds + id
-                }
-                SyncWorkoutWorker.scheduleSync(context)
-                if (nextExercise != null) {
-                    activeWorkoutExercise = Pair(nextExercise, exercisesMap[nextExercise.exerciseId])
-                } else {
-                    activeWorkoutExercise = null
-                }
-            },
-            onProgressUpdate = { updatedProgress ->
-                exerciseSetProgress = exerciseSetProgress + (routineEx.exerciseId to updatedProgress)
-            },
-            onSetSaved = {
-                restTimerSeconds = 90
-                isRestTimerRunning = true
-                SyncWorkoutWorker.scheduleSync(context)
-            },
-            onDismiss = { activeWorkoutExercise = null }
+            workoutViewModel = workoutViewModel,
+            onBack = {
+                showWorkoutScreen = false
+                workoutViewModel.closeExercise()
+            }
         )
     }
 
