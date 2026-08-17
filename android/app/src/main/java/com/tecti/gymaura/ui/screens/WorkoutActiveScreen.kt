@@ -245,7 +245,7 @@ fun WorkoutActiveScreen(
                 .statusBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 8.dp)
         ) {
-            Row(Modifier.fillMaxWidth(), Alignment.CenterVertically, Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver", tint = TextPrimary)
                 }
@@ -638,7 +638,7 @@ private fun RestTimerConfigDialog(current: Int, onConfirm: (Int) -> Unit, onDism
             }
 
             // Custom input
-            Row(Modifier.fillMaxWidth(), Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = customInput,
                     onValueChange = { v ->
