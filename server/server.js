@@ -323,9 +323,7 @@ app.get('/api/logs/:clientId', authMiddleware, async (req, res) => {
 app.post('/api/logs', authMiddleware, async (req, res) => {
   try {
     const athleteId = req.user.id;
-    // Find or create today's workout log
-    const today = new Date();
-    today.setHours(0,0,0,0);
+    const today = new Date(); today.setHours(0,0,0,0);
     let wLog = await prisma.workoutLog.findFirst({ where: { athleteId, date: { gte: today } } });
     if (!wLog) wLog = await prisma.workoutLog.create({ data: { athleteId } });
     const setLog = await prisma.setLog.create({
@@ -334,9 +332,11 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
         workoutLogId: wLog.id,
         athleteId,
         exerciseId: req.body.exerciseId,
+        exerciseName: req.body.exerciseName || req.body.notes || '',
         weightKg: parseFloat(req.body.weightKg) || 0,
         reps: parseInt(req.body.repsCompleted) || 0,
         setNumber: parseInt(req.body.setNumber) || 1,
+        restSeconds: parseInt(req.body.restSeconds) || null,
         notes: req.body.notes || ''
       }
     });
@@ -348,28 +348,33 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
 app.post('/api/v1/workouts/sync', authMiddleware, async (req, res) => {
   try {
     const athleteId = req.user.id;
-    const { sets } = req.body; // Array of SetLog objects from mobile
+    const { sets } = req.body;
     if (!Array.isArray(sets) || sets.length === 0) return res.json({ synced: 0, failed: 0 });
     let synced = 0, failed = 0;
-    // Find or create today's workout log
-    const today = new Date();
-    today.setHours(0,0,0,0);
+    const today = new Date(); today.setHours(0,0,0,0);
     let wLog = await prisma.workoutLog.findFirst({ where: { athleteId, date: { gte: today } } });
     if (!wLog) wLog = await prisma.workoutLog.create({ data: { athleteId } });
     for (const s of sets) {
       try {
         await prisma.setLog.upsert({
           where: { clientLogId: s.clientLogId },
-          update: { weightKg: s.weightKg, reps: s.reps, rpe: s.rpe, notes: s.notes || '' },
+          update: {
+            weightKg: s.weightKg, reps: s.reps, rpe: s.rpe,
+            restSeconds: s.restSeconds ?? null,
+            notes: s.notes || ''
+          },
           create: {
             clientLogId: s.clientLogId,
             workoutLogId: wLog.id,
             athleteId,
             exerciseId: s.exerciseId,
+            exerciseName: s.exerciseName || s.notes || '',
             weightKg: s.weightKg ?? 0,
             reps: s.reps ?? 0,
             rpe: s.rpe ?? 0,
             setNumber: s.setNumber || 1,
+            sessionId: s.sessionId || null,
+            restSeconds: s.restSeconds ?? null,
             notes: s.notes || ''
           }
         });

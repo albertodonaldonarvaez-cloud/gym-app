@@ -375,7 +375,8 @@ object ServerRepository {
         reps: Int,
         weightKg: Double,
         rpe: Double,
-        sessionId: String
+        sessionId: String,
+        restSeconds: Int? = null
     ): Boolean {
         return try {
             val dto = ApiService.SyncSetDto(
@@ -386,7 +387,8 @@ object ServerRepository {
                 reps = reps,
                 rpe = rpe,
                 setNumber = setNumber,
-                notes = exerciseName
+                notes = exerciseName,
+                restSeconds = restSeconds
             )
             val resp = api().syncWorkouts(authHeader(), ApiService.SyncRequest(listOf(dto)))
             resp.isSuccessful

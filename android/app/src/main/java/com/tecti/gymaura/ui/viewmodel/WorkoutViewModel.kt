@@ -41,17 +41,24 @@ class WorkoutViewModel : ViewModel() {
     fun getSetProgress(exerciseId: String): List<Triple<Double, Int, Boolean>>? =
         exerciseSetProgress[exerciseId]
 
-    // Rest timer
+    // ─── Rest timer ───────────────────────────────────────────────────────────
+    var defaultRestSeconds by mutableStateOf(90)
     var restTimerSeconds by mutableStateOf(0)
         private set
     var isRestTimerRunning by mutableStateOf(false)
         private set
+    // Tracks when rest started — used to compute actual rest time taken
+    var restStartedAt by mutableStateOf(0L)
+        private set
+
+    fun setDefaultRest(seconds: Int) { defaultRestSeconds = seconds.coerceIn(15, 600) }
 
     private var restTimerJob: Job? = null
 
-    fun startRestTimer(seconds: Int = 90) {
+    fun startRestTimer(seconds: Int = defaultRestSeconds) {
         restTimerJob?.cancel()
         restTimerSeconds = seconds
+        restStartedAt = System.currentTimeMillis()
         isRestTimerRunning = true
         restTimerJob = viewModelScope.launch {
             while (restTimerSeconds > 0 && isRestTimerRunning) {
@@ -60,6 +67,12 @@ class WorkoutViewModel : ViewModel() {
             }
             isRestTimerRunning = false
         }
+    }
+
+    /** Returns actual seconds elapsed since rest started (0 if not running) */
+    fun getActualRestTaken(): Int {
+        if (restStartedAt == 0L) return 0
+        return ((System.currentTimeMillis() - restStartedAt) / 1000).toInt()
     }
 
     fun cancelRestTimer() {

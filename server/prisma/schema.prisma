@@ -108,10 +108,12 @@ model SetLog {
   exerciseId   String   @map("exercise_id")
   sessionId    String?  @map("session_id")
   dayName      String   @default("") @map("day_name")
+  exerciseName String   @default("") @map("exercise_name")
   weightKg     Float    @default(0) @map("weight_kg")
   reps         Int      @default(0)
   rpe          Float?   @default(0)
   setNumber    Int      @default(1) @map("set_number")
+  restSeconds  Int?     @map("rest_seconds")        // actual rest taken after this set
   startedAt    DateTime? @map("started_at")
   completedAt  DateTime? @map("completed_at")
   notes        String   @default("")

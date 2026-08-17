@@ -72,7 +72,7 @@ interface ApiService {
     ): Response<List<WeightLog>>
 
     @POST("api/logs")
-    suspend fun logSet(
+    suspend fun legacyLogSet(
         @Header("Authorization") token: String,
         @Body log: Map<String, Any>
     ): Response<WeightLog>
@@ -86,7 +86,9 @@ interface ApiService {
         val reps: Int,
         val rpe: Double,
         val setNumber: Int,
-        val notes: String
+        val notes: String,
+        val exerciseName: String? = null,
+        val restSeconds: Int? = null
     )
 
     data class SyncRequest(val sets: List<SyncSetDto>)
@@ -109,14 +111,14 @@ interface ApiService {
         @Path("id") exerciseId: String
     ): Response<LastPerformance>
 
-    // ─── HUAWEI HEALTH ─────────────────────────────────────────────────────────────
+    // ─── HUAWEI HEALTH ─────────────────────────────────────────────────────────
     @POST("api/v1/huawei/sync-workout")
     suspend fun syncHuaweiWorkout(
         @Header("Authorization") token: String,
         @Body data: HuaweiWorkoutData
     ): Response<Map<String, Any>>
 
-    // ─── ROUTINE TEMPLATES ─────────────────────────────────────────────────────────
+    // ─── ROUTINE TEMPLATES ─────────────────────────────────────────────────────
     @GET("api/v1/coach/templates")
     suspend fun getTemplates(
         @Header("Authorization") token: String
@@ -140,7 +142,8 @@ interface ApiService {
         @Path("id") templateId: String,
         @Body body: AssignTemplateRequest
     ): Response<AssignTemplateResponse>
-    // ─── WARMUP ─────────────────────────────────────────────────────────────────────
+
+    // ─── WARMUP ────────────────────────────────────────────────────────────────
     @POST("api/v1/warmup/start")
     suspend fun startWarmup(
         @Header("Authorization") token: String,
@@ -158,14 +161,14 @@ interface ApiService {
         @Header("Authorization") token: String
     ): Response<List<Map<String, Any>>>
 
-    // ─── WORKOUT SESSION ─────────────────────────────────────────────────────────────
+    // ─── WORKOUT SESSION ───────────────────────────────────────────────────────
     @POST("api/v1/workouts/session")
     suspend fun saveWorkoutSession(
         @Header("Authorization") token: String,
         @Body body: Map<String, Any>
     ): Response<Map<String, Any>>
 
-    // ─── CUSTOM EXERCISES ────────────────────────────────────────────────────────────
+    // ─── CUSTOM EXERCISES ──────────────────────────────────────────────────────
     @POST("api/v1/coach/exercises/custom")
     suspend fun createCustomExercise(
         @Header("Authorization") token: String,
