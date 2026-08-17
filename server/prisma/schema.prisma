@@ -46,6 +46,7 @@ model Exercise {
   category      String   @default("General")
   equipment     String   @default("Libre")
   instructions  String   @default("")
+  instructionsEs String? @map("instructions_es")
   defaultSets   Int      @default(4) @map("default_sets")
   defaultReps   Int      @default(12) @map("default_reps")
   mediaFilename String?  @map("media_filename")

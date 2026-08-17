@@ -184,18 +184,18 @@ app.get('/api/exercises', async (req, res) => {
 
     res.json({
       data: exercises.map(e => ({
-        id:           e.id,
-        name:         e.name,
-        category:     e.category,
-        targetMuscle: e.muscleGroup,
-        muscleGroup:  e.muscleGroup,
-        equipment:    e.equipment,
-        instructions: e.instructions,
-        defaultSets:  e.defaultSets,
-        defaultReps:  e.defaultReps,
-        mediaUrl:     e.mediaUrl,
-        imageUrls:    buildImageUrls(e),   // Array con URLs del CDN
-        icon:         'dumbbell',
+        id:             e.id,
+        name:           e.name,
+        category:       e.category,
+        targetMuscle:   e.muscleGroup,
+        muscleGroup:    e.muscleGroup,
+        equipment:      e.equipment,
+        instructions:   e.instructionsEs || e.instructions,  // prefer Spanish
+        defaultSets:    e.defaultSets,
+        defaultReps:    e.defaultReps,
+        mediaUrl:       e.mediaUrl,
+        imageUrls:      buildImageUrls(e),
+        icon:           'dumbbell',
       })),
       total,
       page:  pageNum,
@@ -295,7 +295,7 @@ app.get('/api/v1/routines/current-week', authMiddleware, async (req, res) => {
             ex.name = exData.name;
             ex.mediaUrl = exData.mediaUrl || null;
             ex.muscleGroup = exData.muscleGroup || '';
-            ex.instructions = exData.instructions || '';
+            ex.instructions = exData.instructionsEs || exData.instructions || '';
           }
         }
       }
@@ -997,6 +997,68 @@ app.get('/api/v1/admin/media-status', authMiddleware, adminOnly, async (req, res
       where: { videoUrl: { not: null }, mediaUrl: null }
     });
     res.json({ total, withMedia, withVideoUrl, pendingDownload: pending });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── TRANSLATE INSTRUCTIONS TO SPANISH ──────────────────────────────────────
+// POST /api/v1/admin/translate-instructions
+// Uses MyMemory free translation API (no key needed, ~5000 words/day free)
+app.post('/api/v1/admin/translate-instructions', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const limit = parseInt(req.body?.limit) || 30;
+    const force = req.body?.force === true;
+
+    // Find exercises without Spanish instructions
+    const exercises = await prisma.exercise.findMany({
+      where: force ? {} : { instructionsEs: null, instructions: { not: '' } },
+      take: limit,
+      select: { id: true, name: true, instructions: true }
+    });
+
+    res.json({ message: `Starting translation for ${exercises.length} exercises`, count: exercises.length });
+
+    // Translate in background
+    const translate = async (text) => {
+      if (!text || text.trim().length < 5) return null;
+      try {
+        const encoded = encodeURIComponent(text.substring(0, 500));
+        const url = `https://api.mymemory.translated.net/get?q=${encoded}&langpair=en|es&de=gymaura@tecti.cloud`;
+        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        const data = await resp.json();
+        if (data.responseStatus === 200 && data.responseData?.translatedText) {
+          return data.responseData.translatedText;
+        }
+        return null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    let translated = 0, failed = 0;
+    for (const ex of exercises) {
+      const es = await translate(ex.instructions);
+      if (es) {
+        await prisma.exercise.update({ where: { id: ex.id }, data: { instructionsEs: es } }).catch(() => {});
+        translated++;
+        console.log(`✅ Translated: ${ex.name}`);
+      } else {
+        failed++;
+        console.log(`⚠️ Translation failed: ${ex.name}`);
+      }
+      // Rate limit: MyMemory allows ~1 req/second
+      await new Promise(r => setTimeout(r, 1200));
+    }
+    console.log(`🌎 Translation complete: ${translated} OK, ${failed} failed`);
+  } catch (e) { console.error('Translation error:', e); }
+});
+
+// GET /api/v1/admin/translate-status
+app.get('/api/v1/admin/translate-status', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const total = await prisma.exercise.count({ where: { instructions: { not: '' } } });
+    const translated = await prisma.exercise.count({ where: { instructionsEs: { not: null } } });
+    const pending = total - translated;
+    res.json({ total, translated, pending, percentDone: total > 0 ? Math.round(translated * 100 / total) : 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
