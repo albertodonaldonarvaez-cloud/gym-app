@@ -380,42 +380,52 @@ private data class ExerciseGroup(
 )
 
 private fun groupByDay(logs: List<SetLogEntity>): List<DayGroup> {
+    if (logs.isEmpty()) return emptyList()
     val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val labelFmt = SimpleDateFormat("EEEE d MMMM", Locale("es", "MX"))
     val numFmt = SimpleDateFormat("d", Locale.getDefault())
     val cal = Calendar.getInstance()
 
     return logs
-        .groupBy { dayFmt.format(Date(it.timestamp)) }
+        .groupBy { runCatching { dayFmt.format(Date(it.timestamp)) }.getOrElse { "1970-01-01" } }
         .entries
         .sortedByDescending { it.key }
-        .map { (dayKey, daySets) ->
-            val date = dayFmt.parse(dayKey)!!
-            cal.time = date; cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
-            val dayStart = cal.timeInMillis
-            cal.add(Calendar.DAY_OF_YEAR, 1)
-            val dayEnd = cal.timeInMillis
+        .mapNotNull { (dayKey, daySets) ->
+            runCatching {
+                val date = dayFmt.parse(dayKey) ?: return@mapNotNull null
+                cal.time = date
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val dayStart = cal.timeInMillis
+                cal.add(Calendar.DAY_OF_YEAR, 1)
+                val dayEnd = cal.timeInMillis
 
-            val exercises = daySets
-                .groupBy { it.exerciseId }
-                .map { (exId, exSets) ->
-                    ExerciseGroup(
-                        exerciseId = exId,
-                        exerciseName = exSets.firstOrNull()?.exerciseName?.ifBlank { exId } ?: exId,
-                        sets = exSets.sortedBy { it.setNumber }
-                    )
-                }
+                val exercises = daySets
+                    .groupBy { it.exerciseId.ifBlank { "sin-ejercicio" } }
+                    .map { (exId, exSets) ->
+                        ExerciseGroup(
+                            exerciseId = exId,
+                            exerciseName = exSets.firstOrNull()
+                                ?.exerciseName?.ifBlank { null }
+                                ?: exId.ifBlank { "Ejercicio" },
+                            sets = exSets.sortedBy { it.setNumber }
+                        )
+                    }
 
-            DayGroup(
-                dayKey = dayKey,
-                label = labelFmt.format(date).replaceFirstChar { it.uppercase() },
-                dayNumber = numFmt.format(date),
-                dayStart = dayStart,
-                dayEnd = dayEnd,
-                exercises = exercises,
-                totalSets = daySets.size,
-                totalVolume = daySets.sumOf { it.weightKg * it.reps }
-            )
+                DayGroup(
+                    dayKey = dayKey,
+                    label = runCatching {
+                        labelFmt.format(date).replaceFirstChar { it.uppercase() }
+                    }.getOrElse { dayKey },
+                    dayNumber = runCatching { numFmt.format(date) }.getOrElse { "?" },
+                    dayStart = dayStart,
+                    dayEnd = dayEnd,
+                    exercises = exercises,
+                    totalSets = daySets.size,
+                    totalVolume = daySets.sumOf { it.weightKg * it.reps }
+                )
+            }.getOrNull()
         }
 }
