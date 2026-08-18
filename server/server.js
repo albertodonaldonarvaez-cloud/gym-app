@@ -1079,9 +1079,8 @@ app.get('/api/v1/admin/translate-status', authMiddleware, adminOnly, async (req,
 });
 
 // ─── FIX MISSING MEDIA ──────────────────────────────────────────────────────
-// POST /api/v1/admin/fix-missing-media
-// Assigns GitHub raw GIF URLs to exercises that have no mediaUrl
-// Uses name-based matching against yuhonas/exercises dataset
+// GET  /api/v1/admin/missing-exercises  — list exercises without valid media
+// POST /api/v1/admin/fix-missing-media  — assign correct GIF URLs (Spanish→English mapping)
 app.get('/api/v1/admin/missing-exercises', authMiddleware, adminOnly, async (req, res) => {
   try {
     const missing = await prisma.exercise.findMany({
@@ -1094,49 +1093,118 @@ app.get('/api/v1/admin/missing-exercises', authMiddleware, adminOnly, async (req
 
 app.post('/api/v1/admin/fix-missing-media', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const missing = await prisma.exercise.findMany({
-      where: { mediaUrl: null },
+    const force = req.body?.force === true; // force=true re-assigns already-assigned ones too
+
+    // Spanish exercise name → hasaneyldrm English path {category}/{filename}
+    // Pattern: https://raw.githubusercontent.com/hasaneyldrm/exercise-db/main/{cat}/{name}.gif
+    const BASE = 'https://raw.githubusercontent.com/hasaneyldrm/exercise-db/main';
+    const SPANISH_MAP = {
+      'press de banca con barra':       `${BASE}/chest/Barbell Bench Press.gif`,
+      'sentadilla con barra':           `${BASE}/upper legs/Barbell Squat.gif`,
+      'press militar':                  `${BASE}/shoulders/Barbell Shoulder Press.gif`,
+      'peso muerto':                    `${BASE}/back/Deadlift.gif`,
+      'dominadas':                      `${BASE}/back/Pull Up.gif`,
+      'remo con barra':                 `${BASE}/back/Barbell Bent Over Row.gif`,
+      'remo en polea':                  `${BASE}/back/Cable Seated Row.gif`,
+      'curl de bíceps con barra':       `${BASE}/upper arms/Barbell Curl.gif`,
+      'curl de biceps con barra':       `${BASE}/upper arms/Barbell Curl.gif`,
+      'extensión de tríceps en polea':  `${BASE}/upper arms/Cable Pushdown.gif`,
+      'extension de triceps en polea':  `${BASE}/upper arms/Cable Pushdown.gif`,
+      'fondos en paralelas':            `${BASE}/upper arms/Dip.gif`,
+      'apertura con mancuernas':        `${BASE}/chest/Dumbbell Fly.gif`,
+      'jalón al pecho':                 `${BASE}/back/Cable Lat Pulldown.gif`,
+      'jalon al pecho':                 `${BASE}/back/Cable Lat Pulldown.gif`,
+      'leg press':                      `${BASE}/upper legs/Leg Press.gif`,
+      'curl femoral':                   `${BASE}/upper legs/Lying Leg Curl.gif`,
+      'elevación de talones de pie':    `${BASE}/lower legs/Standing Calf Raise.gif`,
+      'elevacion de talones de pie':    `${BASE}/lower legs/Standing Calf Raise.gif`,
+      'press de hombro con mancuernas': `${BASE}/shoulders/Dumbbell Shoulder Press.gif`,
+      'elevación frontal':              `${BASE}/shoulders/Dumbbell Front Raise.gif`,
+      'elevacion frontal':              `${BASE}/shoulders/Dumbbell Front Raise.gif`,
+      'pájaro con mancuernas':          `${BASE}/shoulders/Dumbbell Rear Delt Row.gif`,
+      'pajaro con mancuernas':          `${BASE}/shoulders/Dumbbell Rear Delt Row.gif`,
+      'abdominal en suelo':             `${BASE}/waist/Crunch.gif`,
+      'plancha frontal':                `${BASE}/waist/Plank.gif`,
+      'curl de bíceps con mancuerna':   `${BASE}/upper arms/Dumbbell Curl.gif`,
+      'curl de biceps con mancuerna':   `${BASE}/upper arms/Dumbbell Curl.gif`,
+      'martillo':                       `${BASE}/upper arms/Dumbbell Hammer Curl.gif`,
+      'prensa de hombros en máquina':   `${BASE}/shoulders/Machine Shoulder Press.gif`,
+      'prensa de hombros en maquina':   `${BASE}/shoulders/Machine Shoulder Press.gif`,
+      'peso muerto rumano':             `${BASE}/upper legs/Romanian Deadlift.gif`,
+      'caminata en cinta':              `${BASE}/cardio/Walking on Treadmill.gif`,
+      'press inclinado con mancuernas': `${BASE}/chest/Dumbbell Incline Bench Press.gif`,
+      'extensión de piernas':           `${BASE}/upper legs/Leg Extension.gif`,
+      'extension de piernas':           `${BASE}/upper legs/Leg Extension.gif`,
+      'elevación lateral':              `${BASE}/shoulders/Dumbbell Lateral Raise.gif`,
+      'elevacion lateral':              `${BASE}/shoulders/Dumbbell Lateral Raise.gif`,
+      'hip thrust':                     `${BASE}/upper legs/Barbell Hip Thrust.gif`,
+      'press francés':                  `${BASE}/upper arms/Dumbbell Lying Triceps Extension.gif`,
+      'press frances':                  `${BASE}/upper arms/Dumbbell Lying Triceps Extension.gif`,
+      'abductores':                     `${BASE}/upper legs/Hip Abductor.gif`,
+      'aductores':                      `${BASE}/upper legs/Hip Adductor.gif`,
+      'aductores ':                     `${BASE}/upper legs/Hip Adductor.gif`,
+    };
+
+    // Category fallback GIFs (if no name match)
+    const CAT_FALLBACK = {
+      'chest':      `${BASE}/chest/Barbell Bench Press.gif`,
+      'back':       `${BASE}/back/Deadlift.gif`,
+      'shoulders':  `${BASE}/shoulders/Dumbbell Shoulder Press.gif`,
+      'upper arms': `${BASE}/upper arms/Dumbbell Curl.gif`,
+      'lower arms': `${BASE}/lower arms/Barbell Wrist Curl.gif`,
+      'upper legs': `${BASE}/upper legs/Barbell Squat.gif`,
+      'lower legs': `${BASE}/lower legs/Standing Calf Raise.gif`,
+      'waist':      `${BASE}/waist/Crunch.gif`,
+      'cardio':     `${BASE}/cardio/Walking on Treadmill.gif`,
+      'neck':       `${BASE}/neck/Neck Lateral Flexion.gif`,
+    };
+
+    // Find exercises to fix: either no media, or a URL that contains 'hasaneyldrm' with Spanish chars
+    const toFix = await prisma.exercise.findMany({
+      where: force
+        ? {}
+        : {
+            OR: [
+              { mediaUrl: null },
+              // Re-assign broken Spanish URLs (those built with Spanish category names)
+              { mediaUrl: { contains: '/Pecho/' } },
+              { mediaUrl: { contains: '/Piernas/' } },
+              { mediaUrl: { contains: '/Espalda/' } },
+              { mediaUrl: { contains: '/Hombros/' } },
+              { mediaUrl: { contains: '/Abdomen/' } },
+              { mediaUrl: { contains: '/Cardio/' } },
+              { mediaUrl: { contains: '/General/' } },
+              { mediaUrl: { contains: '/Tríceps/' } },
+              { mediaUrl: { contains: '/Bíceps/' } },
+            ]
+          },
       select: { id: true, name: true, category: true }
     });
-    if (missing.length === 0) return res.json({ message: 'No exercises missing media', fixed: 0 });
 
-    // Build a slug from exercise name that matches yuhonas dataset file naming:
-    // "Barbell Bench Press" -> "Barbell_Bench_Press.gif"
-    // yuhonas raw URL pattern:
-    // https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/{name}/{img}
-    // But actually the images are in the dist folder structure. Use the direct approach:
-    // https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/{slug}/0.jpg
-    // or hasaneyldrm pattern:
-    // https://raw.githubusercontent.com/hasaneyldrm/exercise-db/main/{category}/{name}.gif
-
-    const baseUrl = 'https://raw.githubusercontent.com/hasaneyldrm/exercise-db/main';
-    const categoryMap = {
-      'chest': 'chest', 'back': 'back', 'shoulders': 'shoulders',
-      'waist': 'waist', 'upper arms': 'upper%20arms', 'lower arms': 'lower%20arms',
-      'upper legs': 'upper%20legs', 'lower legs': 'lower%20legs',
-      'cardio': 'cardio', 'neck': 'neck'
-    };
+    if (toFix.length === 0) return res.json({ message: 'All exercises have valid media', fixed: 0 });
 
     let fixed = 0;
     const results = [];
 
-    for (const ex of missing) {
-      // Build slug: "Barbell Bench Press" -> "Barbell%20Bench%20Press" for URL
-      const nameParts = ex.name.trim().split(/\s+/);
-      const nameSlug = nameParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('%20');
-      const cat = categoryMap[ex.category] || ex.category;
-      const gifUrl = `${baseUrl}/${cat}/${nameSlug}.gif`;
+    for (const ex of toFix) {
+      const key = ex.name.toLowerCase().trim();
+      const url = SPANISH_MAP[key]
+        || CAT_FALLBACK[ex.category?.toLowerCase()]
+        || `${BASE}/chest/Barbell Bench Press.gif`; // last resort
+
+      // Encode spaces in URL
+      const encodedUrl = url.replace(/ /g, '%20');
 
       try {
-        await prisma.exercise.update({ where: { id: ex.id }, data: { mediaUrl: gifUrl } });
+        await prisma.exercise.update({ where: { id: ex.id }, data: { mediaUrl: encodedUrl } });
         fixed++;
-        results.push({ name: ex.name, url: gifUrl });
+        results.push({ name: ex.name, url: encodedUrl });
       } catch (err) {
         results.push({ name: ex.name, error: err.message });
       }
     }
 
-    res.json({ fixed, total: missing.length, results });
+    res.json({ fixed, total: toFix.length, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
