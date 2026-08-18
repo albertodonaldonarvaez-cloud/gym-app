@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -82,7 +83,7 @@ fun GymAuraApp() {
 }
 
 enum class NavigationTab {
-    DASHBOARD, CATALOG, SERVER_SETTINGS
+    DASHBOARD, CATALOG, HISTORY, SERVER_SETTINGS
 }
 
 @Composable
@@ -147,9 +148,10 @@ fun MainAppScreen(onLogout: () -> Unit) {
                             }
                         }
                         NavigationTab.CATALOG -> {
-                            ExerciseCatalogScreen(
-                                currentRole = currentRole
-                            )
+                            ExerciseCatalogScreen(currentRole = currentRole)
+                        }
+                        NavigationTab.HISTORY -> {
+                            com.tecti.gymaura.ui.screens.HistoryScreen()
                         }
                         NavigationTab.SERVER_SETTINGS -> {
                             ServerSettingsView(
@@ -293,6 +295,15 @@ fun GlassBottomNavigationBar(
                 isSelected = activeTab == NavigationTab.CATALOG,
                 onClick = { onTabSelected(NavigationTab.CATALOG) }
             )
+            // History tab only for CLIENT
+            if (currentRole == UserRole.CLIENT) {
+                NavItem(
+                    icon = Icons.Default.History,
+                    label = "Historial",
+                    isSelected = activeTab == NavigationTab.HISTORY,
+                    onClick = { onTabSelected(NavigationTab.HISTORY) }
+                )
+            }
             NavItem(
                 icon = Icons.Default.Cloud,
                 label = "Servidor",

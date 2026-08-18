@@ -33,6 +33,15 @@ interface SetLogDao {
     @Query("UPDATE set_logs SET isSynced = 1 WHERE id = :id")
     suspend fun markSynced(id: String)
 
+    @Query("DELETE FROM set_logs WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM set_logs WHERE exerciseId = :exerciseId AND timestamp >= :dayStart AND timestamp < :dayEnd")
+    suspend fun deleteByExerciseAndDay(exerciseId: String, dayStart: Long, dayEnd: Long)
+
+    @Query("DELETE FROM set_logs WHERE timestamp >= :dayStart AND timestamp < :dayEnd")
+    suspend fun deleteByDay(dayStart: Long, dayEnd: Long)
+
     @Query("DELETE FROM set_logs")
     suspend fun deleteAll()
 }
