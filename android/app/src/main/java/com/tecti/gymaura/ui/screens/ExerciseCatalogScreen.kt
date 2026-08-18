@@ -41,7 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 
 fun getSpanishCategoryName(category: String): String {
-    return when (category) {
+    return when (category.lowercase().trim()) {
         "chest" -> "Pecho"
         "back" -> "Espalda"
         "waist" -> "Cintura/Abdomen"
@@ -52,7 +52,66 @@ fun getSpanishCategoryName(category: String): String {
         "lower legs" -> "Pantorrillas"
         "cardio" -> "Cardio"
         "neck" -> "Cuello"
-        else -> category
+        "general" -> "General"
+        else -> category.replaceFirstChar { it.uppercase() }
+    }
+}
+
+fun getSpanishEquipmentName(equipment: String): String {
+    return when (equipment.lowercase().trim()) {
+        "barbell" -> "Barra"
+        "dumbbell", "dumbbells" -> "Mancuernas"
+        "body weight", "bodyweight" -> "Peso corporal"
+        "cable" -> "Cable/Polea"
+        "machine" -> "Máquina"
+        "kettlebell" -> "Kettlebell"
+        "band", "resistance band" -> "Liga/Banda"
+        "ez barbell", "ez bar" -> "Barra EZ"
+        "trap bar" -> "Barra Hexagonal"
+        "smith machine" -> "Máquina Smith"
+        "stability ball" -> "Pelota de estabilidad"
+        "bosu ball" -> "Bosu"
+        "rope" -> "Cuerda"
+        "plate" -> "Disco"
+        "sled" -> "Trineo"
+        "tire" -> "Llanta"
+        "leverage machine" -> "Máquina de palanca"
+        "suspension" -> "TRX/Suspensión"
+        "roller" -> "Rodillo"
+        "assisted" -> "Asistido"
+        "weighted" -> "Con peso"
+        "libre" -> "Libre"
+        "" -> "Libre"
+        else -> equipment.replaceFirstChar { it.uppercase() }
+    }
+}
+
+fun getSpanishMuscleName(muscle: String): String {
+    return when (muscle.lowercase().trim()) {
+        "chest" -> "Pecho"
+        "back" -> "Espalda"
+        "lats" -> "Dorsales"
+        "traps" -> "Trapecios"
+        "shoulders" -> "Hombros"
+        "delts", "deltoids" -> "Deltoides"
+        "biceps" -> "Bíceps"
+        "triceps" -> "Tríceps"
+        "forearms" -> "Antebrazos"
+        "quads", "quadriceps" -> "Cuádriceps"
+        "hamstrings" -> "Isquiotibiales"
+        "glutes" -> "Glúteos"
+        "calves" -> "Pantorrillas"
+        "abs", "abdominals" -> "Abdominales"
+        "obliques" -> "Oblicuos"
+        "lower back" -> "Zona Lumbar"
+        "upper back" -> "Espalda Alta"
+        "neck" -> "Cuello"
+        "adductors" -> "Aductores"
+        "abductors" -> "Abductores"
+        "serratus anterior" -> "Serrato"
+        "hip flexors" -> "Flexores de cadera"
+        "cardio" -> "Cardio"
+        else -> muscle.replaceFirstChar { it.uppercase() }
     }
 }
 
@@ -267,7 +326,7 @@ fun ExerciseCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     GlassBadge(text = getSpanishCategoryName(exercise.category), color = AppleBlue)
-                    GlassBadge(text = exercise.targetMuscle, color = AppleTeal)
+                    GlassBadge(text = getSpanishMuscleName(exercise.targetMuscle), color = AppleTeal)
                 }
             }
 
@@ -340,7 +399,7 @@ fun ExerciseDetailModal(
 
                 Text(text = exercise.name, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
                 Spacer(modifier = Modifier.height(8.dp))
-                GlassBadge(text = exercise.targetMuscle, color = AppleBlue)
+                GlassBadge(text = getSpanishMuscleName(exercise.targetMuscle), color = AppleBlue)
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -358,7 +417,7 @@ fun ExerciseDetailModal(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Categoría", fontSize = 10.sp, color = TextSecondary)
-                            Text(getSpanishCategoryName(exercise.category), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary, textAlign = TextAlign.Center)
+                            Text(getSpanishMuscleName(exercise.targetMuscle), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary, textAlign = TextAlign.Center)
                         }
                     }
                     Box(
@@ -371,7 +430,7 @@ fun ExerciseDetailModal(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Equipo", fontSize = 10.sp, color = TextSecondary)
-                            Text(exercise.equipment, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary, textAlign = TextAlign.Center)
+                            Text(getSpanishEquipmentName(exercise.equipment), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary, textAlign = TextAlign.Center)
                         }
                     }
                     Box(
