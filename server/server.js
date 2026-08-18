@@ -1007,7 +1007,7 @@ app.get('/api/v1/admin/media-status', authMiddleware, adminOnly, async (req, res
 
 // ─── TRANSLATE INSTRUCTIONS TO SPANISH ──────────────────────────────────────
 // POST /api/v1/admin/translate-instructions
-// Uses MyMemory free translation API (no key needed, ~5000 words/day free)
+// Uses unofficial Google Translate API (no key, no quota limit)
 app.post('/api/v1/admin/translate-instructions', authMiddleware, adminOnly, async (req, res) => {
   try {
     const limit = parseInt(req.body?.limit) || 30;
@@ -1022,19 +1022,30 @@ app.post('/api/v1/admin/translate-instructions', authMiddleware, adminOnly, asyn
 
     res.json({ message: `Starting translation for ${exercises.length} exercises`, count: exercises.length });
 
-    // Translate in background
+    // Unofficial Google Translate — no quota, no API key
     const translate = async (text) => {
       if (!text || text.trim().length < 5) return null;
       try {
-        const encoded = encodeURIComponent(text.substring(0, 500));
-        const url = `https://api.mymemory.translated.net/get?q=${encoded}&langpair=en|es&de=gymaura@tecti.cloud`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        const chunk = text.substring(0, 800); // Google handles up to ~5000 chars
+        const encoded = encodeURIComponent(chunk);
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encoded}`;
+        const resp = await fetch(url, {
+          signal: AbortSignal.timeout(15000),
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GymAura/1.0)' }
+        });
+        if (!resp.ok) {
+          console.log(`⚠️ Google Translate HTTP ${resp.status}`);
+          return null;
+        }
         const data = await resp.json();
-        if (data.responseStatus === 200 && data.responseData?.translatedText) {
-          return data.responseData.translatedText;
+        // Response structure: [[["translated","original",null,null,10],...],...]
+        if (Array.isArray(data) && Array.isArray(data[0])) {
+          const translatedText = data[0].map(part => part[0]).filter(Boolean).join('');
+          return translatedText || null;
         }
         return null;
       } catch (e) {
+        console.log(`⚠️ Translate error: ${e.message}`);
         return null;
       }
     };
@@ -1045,15 +1056,15 @@ app.post('/api/v1/admin/translate-instructions', authMiddleware, adminOnly, asyn
       if (es) {
         await prisma.exercise.update({ where: { id: ex.id }, data: { instructionsEs: es } }).catch(() => {});
         translated++;
-        console.log(`✅ Translated: ${ex.name}`);
+        if (translated % 10 === 0) console.log(`🌎 Translated ${translated}/${exercises.length}: ${ex.name}`);
       } else {
         failed++;
-        console.log(`⚠️ Translation failed: ${ex.name}`);
+        console.log(`⚠️ Failed: ${ex.name}`);
       }
-      // Rate limit: MyMemory allows ~1 req/second
-      await new Promise(r => setTimeout(r, 1200));
+      // Small delay to avoid triggering rate limits
+      await new Promise(r => setTimeout(r, 500));
     }
-    console.log(`🌎 Translation complete: ${translated} OK, ${failed} failed`);
+    console.log(`✅ Translation batch done: ${translated} OK, ${failed} failed`);
   } catch (e) { console.error('Translation error:', e); }
 });
 
