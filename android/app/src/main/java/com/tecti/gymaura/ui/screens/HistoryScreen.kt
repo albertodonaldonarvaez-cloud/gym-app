@@ -1,13 +1,25 @@
 package com.tecti.gymaura.ui.screens
 
-import androidx.compose.animation.*
-import androidx.compose.foundation.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncDisabled
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,406 +38,272 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * HistoryScreen — Pestaña de historial de entrenamiento local.
- *
- * Agrupa los SetLog del Room DB por Día > Ejercicio.
- * Permite borrar: serie individual, grupo por ejercicio+día, día entero, o todo.
- * Útil para pruebas y análisis.
- */
 @Composable
 fun HistoryScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val dao = remember { AppDatabase.getDatabase(context).setLogDao() }
+    var allLogs by remember { mutableStateOf<List<SetLogEntity>>(emptyList()) }
+    var dbError by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    // Observe all set logs as Flow
-    val allLogs by dao.getAllSetLogs().collectAsState(initial = emptyList())
+    val dao = remember {
+        try { AppDatabase.getDatabase(context).setLogDao() } catch (e: Exception) { null }
+    }
 
-    // Group by day
-    val grouped = remember(allLogs) { groupByDay(allLogs) }
+    LaunchedEffect(dao) {
+        if (dao == null) { dbError = "No se pudo abrir la BD"; isLoading = false; return@LaunchedEffect }
+        try {
+            dao.getAllSetLogs().collect { logs -> allLogs = logs; isLoading = false }
+        } catch (e: Exception) {
+            dbError = "Error: ${e.message}"; isLoading = false
+        }
+    }
 
+    val grouped = remember(allLogs) {
+        try { safeGroupByDay(allLogs) } catch (_: Exception) { emptyList() }
+    }
     var showDeleteAllDialog by remember { mutableStateOf(false) }
-    var expandedDays by remember { mutableStateOf(setOf<String>()) }     // which day keys are expanded
-    var expandedGroups by remember { mutableStateOf(setOf<String>()) }   // which exerciseId+dayKey are expanded
+    var expandedDays by remember { mutableStateOf(setOf<String>()) }
+    var expandedGroups by remember { mutableStateOf(setOf<String>()) }
 
-    // ─── Confirm delete all ────────────────────────────────────────────────────
     if (showDeleteAllDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteAllDialog = false },
             icon = { Icon(Icons.Default.DeleteForever, null, tint = Color(0xFFEF4444)) },
             title = { Text("Borrar todo el historial", fontWeight = FontWeight.ExtraBold) },
-            text = { Text("Se eliminarán TODAS las series registradas localmente. Esta acción no se puede deshacer.") },
+            text = { Text("Se eliminarán TODAS las series registradas localmente.") },
             confirmButton = {
-                Button(onClick = {
-                    scope.launch { dao.deleteAll(); showDeleteAllDialog = false }
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) {
-                    Text("Borrar todo", color = Color.White, fontWeight = FontWeight.Bold)
-                }
+                Button(
+                    onClick = { scope.launch { try { dao?.deleteAll() } catch (_: Exception) {}; showDeleteAllDialog = false } },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) { Text("Borrar todo", color = Color.White, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteAllDialog = false }) { Text("Cancelar") }
-            }
+            dismissButton = { TextButton(onClick = { showDeleteAllDialog = false }) { Text("Cancelar") } }
         )
     }
 
-    // ─── LAYOUT ────────────────────────────────────────────────────────────────
     Column(Modifier.fillMaxSize().background(Color(0xFFF2F6FF))) {
-
-        // Header
         Row(
-            Modifier.fillMaxWidth()
-                .background(Color.White)
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+            Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
                 Text("Historial", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
-                Text("${allLogs.size} series registradas", fontSize = 13.sp, color = TextSecondary)
+                Text(if (isLoading) "Cargando..." else "${allLogs.size} series registradas", fontSize = 13.sp, color = TextSecondary)
             }
             if (allLogs.isNotEmpty()) {
                 IconButton(onClick = { showDeleteAllDialog = true }) {
-                    Icon(Icons.Default.DeleteSweep, "Borrar todo", tint = Color(0xFFEF4444))
+                    Icon(Icons.Default.DeleteForever, "Borrar todo", tint = Color(0xFFEF4444))
                 }
             }
         }
-        HorizontalDivider(color = GlassBorderWhite)
+        Divider(color = GlassBorderWhite, thickness = 0.5.dp)
 
-        if (allLogs.isEmpty()) {
-            // Empty state
-            Box(Modifier.fillMaxSize(), Alignment.Center) {
+        when {
+            isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = AppleBlue) }
+            dbError != null -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Default.SyncDisabled, null, tint = AppleOrange, modifier = Modifier.size(56.dp))
+                    Text("Error de base de datos", fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text(dbError ?: "", fontSize = 13.sp, color = TextSecondary, textAlign = TextAlign.Center)
+                }
+            }
+            allLogs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Default.FitnessCenter, null, tint = AppleBlue.copy(alpha = 0.25f), modifier = Modifier.size(72.dp))
                     Text("Sin historial todavía", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextSecondary)
-                    Text("Inicia un entrenamiento y registra\ntus series para verlas aquí.",
-                        fontSize = 14.sp, color = TextSecondary, textAlign = TextAlign.Center)
+                    Text("Registra un entrenamiento para ver tu historial", fontSize = 14.sp, color = TextSecondary, textAlign = TextAlign.Center)
                 }
             }
-            return@Column
-        }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(grouped, key = { it.dayKey }) { dayGroup ->
-                DayCard(
-                    dayGroup = dayGroup,
-                    isExpanded = dayGroup.dayKey in expandedDays,
-                    expandedGroups = expandedGroups,
-                    onToggleDay = { key ->
-                        expandedDays = if (key in expandedDays) expandedDays - key else expandedDays + key
-                    },
-                    onToggleGroup = { key ->
-                        expandedGroups = if (key in expandedGroups) expandedGroups - key else expandedGroups + key
-                    },
-                    onDeleteSet = { id -> scope.launch { dao.deleteById(id) } },
-                    onDeleteExerciseDay = { exId, start, end ->
-                        scope.launch { dao.deleteByExerciseAndDay(exId, start, end) }
-                    },
-                    onDeleteDay = { start, end ->
-                        scope.launch { dao.deleteByDay(start, end) }
-                    }
-                )
+            else -> LazyColumn(
+                contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(grouped, key = { it.dayKey }) { dayGroup ->
+                    val isDayExpanded = dayGroup.dayKey in expandedDays
+                    DayCard(
+                        dayGroup = dayGroup, isExpanded = isDayExpanded, expandedGroups = expandedGroups,
+                        onToggleDay = { expandedDays = if (isDayExpanded) expandedDays - dayGroup.dayKey else expandedDays + dayGroup.dayKey },
+                        onToggleExercise = { key -> expandedGroups = if (key in expandedGroups) expandedGroups - key else expandedGroups + key },
+                        onDeleteDay = { scope.launch { try { dao?.deleteByDay(dayGroup.dayStart, dayGroup.dayEnd) } catch (_: Exception) {} } },
+                        onDeleteExercise = { exId -> scope.launch { try { dao?.deleteByExerciseAndDay(exId, dayGroup.dayStart, dayGroup.dayEnd) } catch (_: Exception) {} } },
+                        onDeleteSet = { id -> scope.launch { try { dao?.deleteById(id) } catch (_: Exception) {} } }
+                    )
+                }
             }
         }
     }
 }
 
-// ─── Day Card ─────────────────────────────────────────────────────────────────
 @Composable
 private fun DayCard(
-    dayGroup: DayGroup,
-    isExpanded: Boolean,
-    expandedGroups: Set<String>,
-    onToggleDay: (String) -> Unit,
-    onToggleGroup: (String) -> Unit,
-    onDeleteSet: (String) -> Unit,
-    onDeleteExerciseDay: (String, Long, Long) -> Unit,
-    onDeleteDay: (Long, Long) -> Unit
+    dayGroup: DayGroup, isExpanded: Boolean, expandedGroups: Set<String>,
+    onToggleDay: () -> Unit, onToggleExercise: (String) -> Unit,
+    onDeleteDay: () -> Unit, onDeleteExercise: (String) -> Unit, onDeleteSet: (String) -> Unit
 ) {
     var showDeleteDayDialog by remember { mutableStateOf(false) }
-
     if (showDeleteDayDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDayDialog = false },
-            title = { Text("Borrar día completo", fontWeight = FontWeight.ExtraBold) },
-            text = { Text("¿Borrar todas las series del ${dayGroup.label}?") },
-            confirmButton = {
-                Button(onClick = {
-                    onDeleteDay(dayGroup.dayStart, dayGroup.dayEnd)
-                    showDeleteDayDialog = false
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) {
-                    Text("Borrar", color = Color.White)
-                }
-            },
+            title = { Text("Borrar dia", fontWeight = FontWeight.ExtraBold) },
+            text = { Text("Borrar todas las series del ${dayGroup.label}?") },
+            confirmButton = { Button(onClick = { onDeleteDay(); showDeleteDayDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) { Text("Borrar", color = Color.White) } },
             dismissButton = { TextButton(onClick = { showDeleteDayDialog = false }) { Text("Cancelar") } }
         )
     }
-
-    Column(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White)
-            .border(1.dp, GlassBorderWhite, RoundedCornerShape(20.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        // Day header
-        Row(
-            Modifier.fillMaxWidth()
-                .clickable { onToggleDay(dayGroup.dayKey) }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(40.dp).clip(RoundedCornerShape(12.dp))
-                        .background(AppleBlue.copy(alpha = 0.1f)),
-                    Alignment.Center
-                ) {
-                    Text(dayGroup.dayNumber, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = AppleBlue)
+        Column {
+            Row(
+                Modifier.fillMaxWidth().clickable { onToggleDay() }.padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.size(42.dp).clip(CircleShape).background(AppleBlue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                        Text(dayGroup.dayNumber, fontWeight = FontWeight.ExtraBold, color = AppleBlue, fontSize = 16.sp)
+                    }
+                    Column {
+                        Text(dayGroup.label, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
+                        Text("${dayGroup.exercises.size} ejercicios - ${dayGroup.totalSets} series - ${String.format("%.0f", dayGroup.totalVolume)}kg", fontSize = 12.sp, color = TextSecondary)
+                    }
                 }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(dayGroup.label, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = TextPrimary)
-                    Text("${dayGroup.exercises.size} ejercicios · ${dayGroup.totalSets} series · ${String.format("%.1f", dayGroup.totalVolume)}kg vol.",
-                        fontSize = 12.sp, color = TextSecondary)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showDeleteDayDialog = true }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
+                    }
+                    Icon(if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextSecondary)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { showDeleteDayDialog = true }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444).copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
-                }
-                Icon(if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextSecondary)
-            }
-        }
-
-        // Exercises in the day
-        AnimatedVisibility(isExpanded) {
-            Column(Modifier.padding(bottom = 8.dp)) {
-                HorizontalDivider(color = GlassBorderWhite, modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(Modifier.height(6.dp))
-                dayGroup.exercises.forEach { exGroup ->
-                    ExerciseGroup(
-                        exGroup = exGroup,
-                        dayGroup = dayGroup,
-                        isExpanded = "${exGroup.exerciseId}_${dayGroup.dayKey}" in expandedGroups,
-                        onToggle = { onToggleGroup("${exGroup.exerciseId}_${dayGroup.dayKey}") },
-                        onDeleteSet = onDeleteSet,
-                        onDeleteExerciseDay = onDeleteExerciseDay
-                    )
+            AnimatedVisibility(visible = isExpanded, enter = expandVertically(), exit = shrinkVertically()) {
+                Column(Modifier.padding(bottom = 8.dp)) {
+                    dayGroup.exercises.forEach { exGroup ->
+                        val groupKey = "${exGroup.exerciseId}_${dayGroup.dayKey}"
+                        ExerciseGroupRow(
+                            exGroup = exGroup,
+                            isExpanded = groupKey in expandedGroups,
+                            onToggle = { onToggleExercise(groupKey) },
+                            onDeleteExercise = { onDeleteExercise(exGroup.exerciseId) },
+                            onDeleteSet = onDeleteSet
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-// ─── Exercise Group within a day ──────────────────────────────────────────────
 @Composable
-private fun ExerciseGroup(
-    exGroup: ExerciseGroup,
-    dayGroup: DayGroup,
-    isExpanded: Boolean,
-    onToggle: () -> Unit,
-    onDeleteSet: (String) -> Unit,
-    onDeleteExerciseDay: (String, Long, Long) -> Unit
+private fun ExerciseGroupRow(
+    exGroup: ExerciseGroup, isExpanded: Boolean,
+    onToggle: () -> Unit, onDeleteExercise: () -> Unit, onDeleteSet: (String) -> Unit
 ) {
-    var showDeleteExDialog by remember { mutableStateOf(false) }
-
-    if (showDeleteExDialog) {
+    var showDialog by remember { mutableStateOf(false) }
+    if (showDialog) {
         AlertDialog(
-            onDismissRequest = { showDeleteExDialog = false },
+            onDismissRequest = { showDialog = false },
             title = { Text("Borrar ejercicio", fontWeight = FontWeight.ExtraBold) },
-            text = { Text("¿Borrar todas las series de \"${exGroup.exerciseName}\" del ${dayGroup.label}?") },
-            confirmButton = {
-                Button(onClick = {
-                    onDeleteExerciseDay(exGroup.exerciseId, dayGroup.dayStart, dayGroup.dayEnd)
-                    showDeleteExDialog = false
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) {
-                    Text("Borrar", color = Color.White)
-                }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteExDialog = false }) { Text("Cancelar") } }
+            text = { Text("Borrar todas las series de ${exGroup.exerciseName}?") },
+            confirmButton = { Button(onClick = { onDeleteExercise(); showDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) { Text("Borrar", color = Color.White) } },
+            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Cancelar") } }
         )
     }
-
-    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-        // Exercise row header
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF8FAFF))) {
         Row(
-            Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFFF5F8FF))
-                .clickable { onToggle() }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            Modifier.fillMaxWidth().clickable { onToggle() }.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(28.dp).clip(CircleShape).background(AppleTeal.copy(alpha = 0.12f)), Alignment.Center) {
-                    Icon(Icons.Default.FitnessCenter, null, tint = AppleTeal, modifier = Modifier.size(14.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text(exGroup.exerciseName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-                    // Summary: best set + volume
-                    val best = exGroup.sets.maxByOrNull { it.weightKg * it.reps }
-                    val vol = exGroup.sets.sumOf { it.weightKg * it.reps }
-                    Text("${exGroup.sets.size} series · vol ${String.format("%.0f", vol)}kg" +
-                        (best?.let { " · mejor ${String.format("%.1f", it.weightKg)}kg×${it.reps}" } ?: ""),
-                        fontSize = 11.sp, color = TextSecondary)
-                }
+            Column(Modifier.weight(1f)) {
+                Text(exGroup.exerciseName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
+                val vol = exGroup.sets.sumOf { it.weightKg * it.reps }
+                val best = exGroup.sets.maxByOrNull { it.weightKg }
+                Text("${exGroup.sets.size} series - vol ${String.format("%.0f", vol)}kg" + (best?.let { " - mejor ${String.format("%.0f", it.weightKg)}kgx${it.reps}" } ?: ""), fontSize = 11.sp, color = TextSecondary)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { showDeleteExDialog = true }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444).copy(alpha = 0.55f), modifier = Modifier.size(16.dp))
+                IconButton(onClick = { showDialog = true }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
                 }
-                Icon(if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                Icon(if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
         }
-
-        // Individual sets
-        AnimatedVisibility(isExpanded) {
-            Column(Modifier.padding(start = 12.dp, top = 4.dp)) {
-                exGroup.sets.forEachIndexed { idx, set ->
-                    SetRow(
-                        index = idx,
-                        set = set,
-                        onDelete = { onDeleteSet(set.id) }
-                    )
+        AnimatedVisibility(visible = isExpanded, enter = expandVertically(), exit = shrinkVertically()) {
+            Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)) {
+                exGroup.sets.forEachIndexed { index, set ->
+                    SetRow(index = index, set = set, onDelete = { onDeleteSet(set.id) })
                 }
             }
         }
     }
 }
 
-// ─── Individual set row ───────────────────────────────────────────────────────
 @Composable
 private fun SetRow(index: Int, set: SetLogEntity, onDelete: () -> Unit) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
-    if (showDeleteDialog) {
+    var showDialog by remember { mutableStateOf(false) }
+    if (showDialog) {
         AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
+            onDismissRequest = { showDialog = false },
             title = { Text("Borrar serie", fontWeight = FontWeight.ExtraBold) },
-            text = { Text("¿Borrar la Serie ${index + 1}: ${String.format("%.1f", set.weightKg)}kg × ${set.reps} reps?") },
-            confirmButton = {
-                Button(onClick = { onDelete(); showDeleteDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) {
-                    Text("Borrar", color = Color.White)
-                }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") } }
+            text = { Text("Serie ${index + 1}: ${String.format("%.1f", set.weightKg)}kg x ${set.reps} reps") },
+            confirmButton = { Button(onClick = { onDelete(); showDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) { Text("Borrar", color = Color.White) } },
+            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Cancelar") } }
         )
     }
-
     Row(
-        Modifier.fillMaxWidth()
-            .padding(vertical = 3.dp)
-            .clip(RoundedCornerShape(10.dp))
+        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(8.dp))
             .background(if (set.isSynced) AppleEmerald.copy(alpha = 0.05f) else AppleOrange.copy(alpha = 0.05f))
             .padding(horizontal = 10.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
     ) {
-        // Set number badge
-        Box(Modifier.size(22.dp).clip(CircleShape).background(AppleBlue.copy(alpha = 0.12f)), Alignment.Center) {
-            Text("${index + 1}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AppleBlue)
-        }
-        Spacer(Modifier.width(8.dp))
-        // Weight × reps
-        Text(
-            "${String.format("%.1f", set.weightKg)} kg  ×  ${set.reps} reps",
-            fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary,
-            modifier = Modifier.weight(1f)
-        )
-        // Sync state badge
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (set.isSynced) {
-                Icon(Icons.Default.CloudDone, "Sincronizado", tint = AppleEmerald, modifier = Modifier.size(14.dp))
-            } else {
-                Icon(Icons.Default.CloudOff, "Pendiente sync", tint = AppleOrange, modifier = Modifier.size(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(22.dp).clip(CircleShape).background(AppleBlue), contentAlignment = Alignment.Center) {
+                Text("${index + 1}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
-            Spacer(Modifier.width(6.dp))
-            // Time
-            Text(
-                SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(set.timestamp)),
-                fontSize = 11.sp, color = TextSecondary
-            )
-            Spacer(Modifier.width(4.dp))
-            IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(24.dp)) {
-                Icon(Icons.Default.Close, null, tint = Color(0xFFEF4444).copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
+            Text("${String.format("%.1f", set.weightKg)} kg x ${set.reps} reps", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+            if (set.rpe > 0) Text("RPE ${set.rpe}", fontSize = 11.sp, color = TextSecondary)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(if (set.isSynced) Icons.Default.Sync else Icons.Default.SyncDisabled, null,
+                tint = if (set.isSynced) AppleEmerald else AppleOrange, modifier = Modifier.size(14.dp))
+            val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+            Text(try { fmt.format(Date(set.timestamp)) } catch (_: Exception) { "--:--" }, fontSize = 11.sp, color = TextSecondary)
+            IconButton(onClick = { showDialog = true }, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
             }
         }
     }
 }
 
-// ─── Data models ──────────────────────────────────────────────────────────────
-private data class DayGroup(
-    val dayKey: String,            // "2024-08-17"
-    val label: String,             // "Domingo 17 agosto"
-    val dayNumber: String,         // "17"
-    val dayStart: Long,
-    val dayEnd: Long,
-    val exercises: List<ExerciseGroup>,
-    val totalSets: Int,
-    val totalVolume: Double
-)
+private data class DayGroup(val dayKey: String, val label: String, val dayNumber: String, val dayStart: Long, val dayEnd: Long, val exercises: List<ExerciseGroup>, val totalSets: Int, val totalVolume: Double)
+private data class ExerciseGroup(val exerciseId: String, val exerciseName: String, val sets: List<SetLogEntity>)
 
-private data class ExerciseGroup(
-    val exerciseId: String,
-    val exerciseName: String,
-    val sets: List<SetLogEntity>
-)
-
-private fun groupByDay(logs: List<SetLogEntity>): List<DayGroup> {
+private fun safeGroupByDay(logs: List<SetLogEntity>): List<DayGroup> {
     if (logs.isEmpty()) return emptyList()
     val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val labelFmt = SimpleDateFormat("EEEE d MMMM", Locale("es", "MX"))
     val numFmt = SimpleDateFormat("d", Locale.getDefault())
     val cal = Calendar.getInstance()
-
     return logs
-        .groupBy { runCatching { dayFmt.format(Date(it.timestamp)) }.getOrElse { "1970-01-01" } }
-        .entries
-        .sortedByDescending { it.key }
+        .groupBy { try { dayFmt.format(Date(it.timestamp)) } catch (_: Exception) { "1970-01-01" } }
+        .entries.sortedByDescending { it.key }
         .mapNotNull { (dayKey, daySets) ->
-            runCatching {
+            try {
                 val date = dayFmt.parse(dayKey) ?: return@mapNotNull null
-                cal.time = date
-                cal.set(Calendar.HOUR_OF_DAY, 0)
-                cal.set(Calendar.MINUTE, 0)
-                cal.set(Calendar.SECOND, 0)
-                cal.set(Calendar.MILLISECOND, 0)
-                val dayStart = cal.timeInMillis
-                cal.add(Calendar.DAY_OF_YEAR, 1)
-                val dayEnd = cal.timeInMillis
-
-                val exercises = daySets
-                    .groupBy { it.exerciseId.ifBlank { "sin-ejercicio" } }
-                    .map { (exId, exSets) ->
-                        ExerciseGroup(
-                            exerciseId = exId,
-                            exerciseName = exSets.firstOrNull()
-                                ?.exerciseName?.ifBlank { null }
-                                ?: exId.ifBlank { "Ejercicio" },
-                            sets = exSets.sortedBy { it.setNumber }
-                        )
-                    }
-
-                DayGroup(
-                    dayKey = dayKey,
-                    label = runCatching {
-                        labelFmt.format(date).replaceFirstChar { it.uppercase() }
-                    }.getOrElse { dayKey },
-                    dayNumber = runCatching { numFmt.format(date) }.getOrElse { "?" },
-                    dayStart = dayStart,
-                    dayEnd = dayEnd,
-                    exercises = exercises,
-                    totalSets = daySets.size,
-                    totalVolume = daySets.sumOf { it.weightKg * it.reps }
-                )
-            }.getOrNull()
+                cal.time = date; cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+                val dayStart = cal.timeInMillis; cal.add(Calendar.DAY_OF_YEAR, 1); val dayEnd = cal.timeInMillis
+                val exercises = daySets.groupBy { it.exerciseId.ifBlank { "sin-ejercicio" } }.map { (exId, exSets) ->
+                    ExerciseGroup(exerciseId = exId, exerciseName = exSets.firstOrNull()?.exerciseName?.ifBlank { null } ?: exId.ifBlank { "Ejercicio" }, sets = exSets.sortedBy { it.setNumber })
+                }
+                DayGroup(dayKey = dayKey,
+                    label = try { labelFmt.format(date).replaceFirstChar { it.uppercase() } } catch (_: Exception) { dayKey },
+                    dayNumber = try { numFmt.format(date) } catch (_: Exception) { "?" },
+                    dayStart = dayStart, dayEnd = dayEnd, exercises = exercises,
+                    totalSets = daySets.size, totalVolume = daySets.sumOf { it.weightKg * it.reps })
+            } catch (_: Exception) { null }
         }
 }
