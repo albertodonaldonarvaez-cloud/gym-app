@@ -296,26 +296,80 @@ object ServerRepository {
         } catch (e: Exception) { Log.e(TAG, "assignTemplate error: ${e.message}"); null }
     }
 
-    // ─── OFFLINE CACHE ────────────────────────────────────────────────────────────
+    // ─── OFFLINE CACHE — Offline-first strategy ───────────────────────────────────
     private fun getDb(): AppDatabase = AppDatabase.getDatabase(_appContext!!)
 
-    suspend fun downloadAndCacheRoutine() {
-        try {
-            val routine = getCurrentWeekRoutine() ?: return
-            val json = com.google.gson.Gson().toJson(routine)
-            val athleteId = _userId ?: return
-            getDb().cachedRoutineDao().upsert(
-                com.tecti.gymaura.data.local.CachedRoutineEntity(athleteId = athleteId, routineJson = json)
-            )
-        } catch (e: Exception) { Log.e(TAG, "Cache routine error: ${e.message}") }
-    }
-
+    /** Returns the locally cached routine immediately (no network). Use to show UI fast. */
     suspend fun getCachedRoutine(): com.tecti.gymaura.data.model.WeeklyRoutine? {
         return try {
             val athleteId = _userId ?: return null
             val entity = getDb().cachedRoutineDao().getByAthleteId(athleteId) ?: return null
             com.google.gson.Gson().fromJson(entity.routineJson, com.tecti.gymaura.data.model.WeeklyRoutine::class.java)
         } catch (e: Exception) { null }
+    }
+
+    /**
+     * Checks if the server routine changed using the lightweight /meta endpoint.
+     * Only downloads the full routine if the ID or updatedAt is different.
+     * Returns the fresh routine if it was updated, null if no change or offline.
+     */
+    suspend fun checkAndRefreshRoutine(): com.tecti.gymaura.data.model.WeeklyRoutine? {
+        return try {
+            val athleteId = _userId ?: return null
+            // Lightweight check — just id + updatedAt (~50 bytes)
+            val metaResp = api().getRoutineMeta(authHeader())
+            if (!metaResp.isSuccessful) return null
+            val meta = metaResp.body() ?: return null
+            if (meta.id == null) return null
+
+            val entity = getDb().cachedRoutineDao().getByAthleteId(athleteId)
+            val isChanged = entity == null
+                || entity.routineId != meta.id
+                || entity.routineUpdatedAt < (meta.updatedAt ?: 0L)
+
+            if (!isChanged) {
+                Log.d(TAG, "Routine unchanged (${meta.id}), using cache")
+                return null  // no change needed
+            }
+
+            // Routine changed — download full
+            Log.d(TAG, "Routine changed, downloading full routine")
+            val fullRoutine = getCurrentWeekRoutine() ?: return null
+            val json = com.google.gson.Gson().toJson(fullRoutine)
+            getDb().cachedRoutineDao().upsert(
+                com.tecti.gymaura.data.local.CachedRoutineEntity(
+                    athleteId = athleteId,
+                    routineJson = json,
+                    routineId = meta.id,
+                    routineUpdatedAt = meta.updatedAt ?: System.currentTimeMillis()
+                )
+            )
+            Log.d(TAG, "Routine cached successfully: ${meta.id}")
+            fullRoutine
+        } catch (e: Exception) {
+            Log.e(TAG, "checkAndRefreshRoutine: offline or error — ${e.message}")
+            null  // silent failure: no network, keep showing cache
+        }
+    }
+
+    /** Syncs pending warmup sessions to server. Call after workout or on app open. */
+    suspend fun syncWarmupSessions() {
+        try {
+            val unsynced = getDb().warmupSessionDao().getUnsynced()
+            if (unsynced.isEmpty()) return
+            val dtos = unsynced.map { w ->
+                com.tecti.gymaura.data.model.WarmupSyncDto(
+                    id = w.id, startedAt = w.startedAt, finishedAt = w.finishedAt,
+                    durationSec = w.durationSec, notes = w.notes
+                )
+            }
+            val resp = api().syncWarmupSessions(authHeader(), dtos)
+            if (resp.isSuccessful) {
+                val synced = resp.body()?.ids ?: emptyList()
+                synced.forEach { getDb().warmupSessionDao().markSynced(it) }
+                Log.d(TAG, "Warmup sessions synced: ${synced.size}")
+            }
+        } catch (e: Exception) { Log.e(TAG, "syncWarmupSessions error: ${e.message}") }
     }
 
     // ─── WARMUP ───────────────────────────────────────────────────────────────────

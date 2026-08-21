@@ -181,3 +181,24 @@ data class AssignTemplateResponse(
     val failed: Int,
     val templateTitle: String
 )
+
+// ─── ROUTINE META (lightweight version check) ─────────────────────────────────
+data class RoutineMeta(
+    val id: String?,
+    val updatedAt: Long?,   // epoch millis from server
+    val title: String?
+)
+
+// ─── WARMUP SYNC ──────────────────────────────────────────────────────────────
+data class WarmupSyncDto(
+    val id: String,
+    val startedAt: Long,
+    val finishedAt: Long?,
+    val durationSec: Int,
+    val notes: String
+)
+
+data class WarmupSyncResponse(
+    val synced: Int,
+    val ids: List<String>
+)

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SyncDisabled
+import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tecti.gymaura.data.local.AppDatabase
 import com.tecti.gymaura.data.local.SetLogEntity
+import com.tecti.gymaura.data.local.WarmupSessionEntity
 import com.tecti.gymaura.ui.theme.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -43,13 +45,15 @@ fun HistoryScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var allLogs by remember { mutableStateOf<List<SetLogEntity>>(emptyList()) }
+    var allWarmups by remember { mutableStateOf<List<WarmupSessionEntity>>(emptyList()) }
     var dbError by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    val dao = remember {
-        try { AppDatabase.getDatabase(context).setLogDao() } catch (e: Exception) { null }
-    }
+    val db = remember { try { AppDatabase.getDatabase(context) } catch (_: Exception) { null } }
+    val dao = remember { try { db?.setLogDao() } catch (_: Exception) { null } }
+    val warmupDao = remember { try { db?.warmupSessionDao() } catch (_: Exception) { null } }
 
+    // Collect set logs
     LaunchedEffect(dao) {
         if (dao == null) { dbError = "No se pudo abrir la BD"; isLoading = false; return@LaunchedEffect }
         try {
@@ -59,8 +63,16 @@ fun HistoryScreen() {
         }
     }
 
-    val grouped = remember(allLogs) {
-        try { safeGroupByDay(allLogs) } catch (_: Exception) { emptyList() }
+    // Collect warmup sessions
+    LaunchedEffect(warmupDao) {
+        if (warmupDao == null) return@LaunchedEffect
+        try {
+            warmupDao.getAllFlow().collect { warmups -> allWarmups = warmups }
+        } catch (_: Exception) {}
+    }
+
+    val grouped = remember(allLogs, allWarmups) {
+        try { safeGroupByDay(allLogs, allWarmups) } catch (_: Exception) { emptyList() }
     }
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var expandedDays by remember { mutableStateOf(setOf<String>()) }
@@ -109,7 +121,7 @@ fun HistoryScreen() {
                     Text(dbError ?: "", fontSize = 13.sp, color = TextSecondary, textAlign = TextAlign.Center)
                 }
             }
-            allLogs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            allLogs.isEmpty() && allWarmups.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Default.FitnessCenter, null, tint = AppleBlue.copy(alpha = 0.25f), modifier = Modifier.size(72.dp))
                     Text("Sin historial todavía", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextSecondary)
@@ -129,7 +141,8 @@ fun HistoryScreen() {
                         onToggleExercise = { key -> expandedGroups = if (key in expandedGroups) expandedGroups - key else expandedGroups + key },
                         onDeleteDay = { scope.launch { try { dao?.deleteByDay(dayGroup.dayStart, dayGroup.dayEnd) } catch (_: Exception) {} } },
                         onDeleteExercise = { exId -> scope.launch { try { dao?.deleteByExerciseAndDay(exId, dayGroup.dayStart, dayGroup.dayEnd) } catch (_: Exception) {} } },
-                        onDeleteSet = { id -> scope.launch { try { dao?.deleteById(id) } catch (_: Exception) {} } }
+                        onDeleteSet = { id -> scope.launch { try { dao?.deleteById(id) } catch (_: Exception) {} } },
+                        onDeleteWarmup = { id -> scope.launch { try { warmupDao?.deleteById(id) } catch (_: Exception) {} } }
                     )
                 }
             }
@@ -141,7 +154,8 @@ fun HistoryScreen() {
 private fun DayCard(
     dayGroup: DayGroup, isExpanded: Boolean, expandedGroups: Set<String>,
     onToggleDay: () -> Unit, onToggleExercise: (String) -> Unit,
-    onDeleteDay: () -> Unit, onDeleteExercise: (String) -> Unit, onDeleteSet: (String) -> Unit
+    onDeleteDay: () -> Unit, onDeleteExercise: (String) -> Unit,
+    onDeleteSet: (String) -> Unit, onDeleteWarmup: (String) -> Unit
 ) {
     var showDeleteDayDialog by remember { mutableStateOf(false) }
     if (showDeleteDayDialog) {
@@ -170,7 +184,8 @@ private fun DayCard(
                     }
                     Column {
                         Text(dayGroup.label, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
-                        Text("${dayGroup.exercises.size} ejercicios - ${dayGroup.totalSets} series - ${String.format("%.0f", dayGroup.totalVolume)}kg", fontSize = 12.sp, color = TextSecondary)
+                        val warmupPart = if (dayGroup.warmups.isNotEmpty()) "${dayGroup.warmups.size} calent. · " else ""
+                        Text("$warmupPart${dayGroup.exercises.size} ejercicios - ${dayGroup.totalSets} series - ${String.format("%.0f", dayGroup.totalVolume)}kg", fontSize = 12.sp, color = TextSecondary)
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -181,7 +196,12 @@ private fun DayCard(
                 }
             }
             AnimatedVisibility(visible = isExpanded, enter = expandVertically(), exit = shrinkVertically()) {
-                Column(Modifier.padding(bottom = 8.dp)) {
+                Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
+                    // Warmup sessions first (orange/fire entries)
+                    dayGroup.warmups.forEach { warmup ->
+                        WarmupRow(warmup = warmup, onDelete = { onDeleteWarmup(warmup.id) })
+                    }
+                    // Then exercise groups
                     dayGroup.exercises.forEach { exGroup ->
                         val groupKey = "${exGroup.exerciseId}_${dayGroup.dayKey}"
                         ExerciseGroupRow(
@@ -278,32 +298,99 @@ private fun SetRow(index: Int, set: SetLogEntity, onDelete: () -> Unit) {
     }
 }
 
-private data class DayGroup(val dayKey: String, val label: String, val dayNumber: String, val dayStart: Long, val dayEnd: Long, val exercises: List<ExerciseGroup>, val totalSets: Int, val totalVolume: Double)
+private data class DayGroup(
+    val dayKey: String, val label: String, val dayNumber: String,
+    val dayStart: Long, val dayEnd: Long,
+    val warmups: List<WarmupSessionEntity>,   // warmup sessions for this day
+    val exercises: List<ExerciseGroup>,
+    val totalSets: Int, val totalVolume: Double
+)
 private data class ExerciseGroup(val exerciseId: String, val exerciseName: String, val sets: List<SetLogEntity>)
 
-private fun safeGroupByDay(logs: List<SetLogEntity>): List<DayGroup> {
-    if (logs.isEmpty()) return emptyList()
+@Composable
+private fun WarmupRow(warmup: WarmupSessionEntity, onDelete: () -> Unit) {
+    var showDialog by remember { mutableStateOf(false) }
+    val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+    val mins = warmup.durationSec / 60
+    val secs = warmup.durationSec % 60
+    val durationStr = if (mins > 0) "${mins} min" else "${secs} seg"
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Borrar calentamiento", fontWeight = FontWeight.ExtraBold) },
+            text = { Text("Borrar calentamiento de $durationStr?") },
+            confirmButton = {
+                Button(onClick = { onDelete(); showDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) { Text("Borrar", color = Color.White) }
+            },
+            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Cancelar") } }
+        )
+    }
+
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFFFFF3E0))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Default.Whatshot, null, tint = AppleOrange, modifier = Modifier.size(18.dp))
+            Column {
+                Text("Calentamiento", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                Text(durationStr + " · " + try { timeFmt.format(Date(warmup.startedAt)) } catch (_: Exception) { "" },
+                    fontSize = 11.sp, color = TextSecondary)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Icon(if (warmup.isSynced) Icons.Default.Sync else Icons.Default.SyncDisabled, null,
+                tint = if (warmup.isSynced) AppleEmerald else AppleOrange, modifier = Modifier.size(13.dp))
+            IconButton(onClick = { showDialog = true }, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
+            }
+        }
+    }
+}
+
+private fun safeGroupByDay(logs: List<SetLogEntity>, warmups: List<WarmupSessionEntity> = emptyList()): List<DayGroup> {
     val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val labelFmt = SimpleDateFormat("EEEE d MMMM", Locale("es", "MX"))
     val numFmt = SimpleDateFormat("d", Locale.getDefault())
     val cal = Calendar.getInstance()
-    return logs
-        .groupBy { try { dayFmt.format(Date(it.timestamp)) } catch (_: Exception) { "1970-01-01" } }
-        .entries.sortedByDescending { it.key }
-        .mapNotNull { (dayKey, daySets) ->
-            try {
-                val date = dayFmt.parse(dayKey) ?: return@mapNotNull null
-                cal.time = date; cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
-                cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
-                val dayStart = cal.timeInMillis; cal.add(Calendar.DAY_OF_YEAR, 1); val dayEnd = cal.timeInMillis
-                val exercises = daySets.groupBy { it.exerciseId.ifBlank { "sin-ejercicio" } }.map { (exId, exSets) ->
-                    ExerciseGroup(exerciseId = exId, exerciseName = exSets.firstOrNull()?.exerciseName?.ifBlank { null } ?: exId.ifBlank { "Ejercicio" }, sets = exSets.sortedBy { it.setNumber })
-                }
-                DayGroup(dayKey = dayKey,
-                    label = try { labelFmt.format(date).replaceFirstChar { it.uppercase() } } catch (_: Exception) { dayKey },
-                    dayNumber = try { numFmt.format(date) } catch (_: Exception) { "?" },
-                    dayStart = dayStart, dayEnd = dayEnd, exercises = exercises,
-                    totalSets = daySets.size, totalVolume = daySets.sumOf { it.weightKg * it.reps })
-            } catch (_: Exception) { null }
-        }
+
+    // Collect all unique day keys from both sets and warmups
+    val allDayKeys = mutableSetOf<String>()
+    logs.forEach { allDayKeys.add(try { dayFmt.format(Date(it.timestamp)) } catch (_: Exception) { "1970-01-01" }) }
+    warmups.forEach { allDayKeys.add(try { dayFmt.format(Date(it.startedAt)) } catch (_: Exception) { "1970-01-01" }) }
+
+    if (allDayKeys.isEmpty()) return emptyList()
+
+    val logsByDay = logs.groupBy { try { dayFmt.format(Date(it.timestamp)) } catch (_: Exception) { "1970-01-01" } }
+    val warmupsByDay = warmups.groupBy { try { dayFmt.format(Date(it.startedAt)) } catch (_: Exception) { "1970-01-01" } }
+
+    return allDayKeys.sortedDescending().mapNotNull { dayKey ->
+        try {
+            val date = dayFmt.parse(dayKey) ?: return@mapNotNull null
+            cal.time = date; cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+            val dayStart = cal.timeInMillis; cal.add(Calendar.DAY_OF_YEAR, 1); val dayEnd = cal.timeInMillis
+
+            val daySets = logsByDay[dayKey] ?: emptyList()
+            val dayWarmups = warmupsByDay[dayKey] ?: emptyList()
+
+            val exercises = daySets.groupBy { it.exerciseId.ifBlank { "sin-ejercicio" } }.map { (exId, exSets) ->
+                ExerciseGroup(exerciseId = exId,
+                    exerciseName = exSets.firstOrNull()?.exerciseName?.ifBlank { null } ?: exId.ifBlank { "Ejercicio" },
+                    sets = exSets.sortedBy { it.setNumber })
+            }
+            DayGroup(dayKey = dayKey,
+                label = try { labelFmt.format(date).replaceFirstChar { it.uppercase() } } catch (_: Exception) { dayKey },
+                dayNumber = try { numFmt.format(date) } catch (_: Exception) { "?" },
+                dayStart = dayStart, dayEnd = dayEnd,
+                warmups = dayWarmups.sortedBy { it.startedAt },
+                exercises = exercises,
+                totalSets = daySets.size, totalVolume = daySets.sumOf { it.weightKg * it.reps })
+        } catch (_: Exception) { null }
+    }
 }

@@ -63,6 +63,17 @@ interface ApiService {
         @Header("Authorization") token: String
     ): Response<WeeklyRoutine>
 
+    @GET("api/v1/routines/current-week/meta")
+    suspend fun getRoutineMeta(
+        @Header("Authorization") token: String
+    ): Response<RoutineMeta>
+
+    @POST("api/v1/workouts/sync-warmup")
+    suspend fun syncWarmupSessions(
+        @Header("Authorization") token: String,
+        @Body sessions: List<WarmupSyncDto>
+    ): Response<WarmupSyncResponse>
+
     // ─── LOGS (LEGACY) ─────────────────────────────────────────────────────────
     @GET("api/logs/{clientId}")
     suspend fun getWeightLogs(

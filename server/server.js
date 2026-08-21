@@ -304,6 +304,65 @@ app.get('/api/v1/routines/current-week', authMiddleware, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
+// ─── ROUTINE META — lightweight version check (avoids full download if unchanged) ──
+// Returns only id + updatedAt timestamp. Client compares with cached version.
+// GET /api/v1/routines/current-week/meta
+app.get('/api/v1/routines/current-week/meta', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    const routine = await prisma.routinePlan.findFirst({
+      where: { athleteId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, title: true, updatedAt: true }
+    });
+    if (!routine) return res.json({ id: null, updatedAt: null, title: null });
+    res.json({
+      id: routine.id,
+      updatedAt: routine.updatedAt.getTime(), // milliseconds for easy comparison
+      title: routine.title
+    });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── SYNC WARMUP SESSIONS ────────────────────────────────────────────────────
+// POST /api/v1/workouts/sync-warmup
+// Persists warmup sessions from the app to the server DB for cross-device history.
+app.post('/api/v1/workouts/sync-warmup', authMiddleware, async (req, res) => {
+  try {
+    const athleteId = req.user.id;
+    const sessions = Array.isArray(req.body) ? req.body : [req.body];
+
+    const upserted = [];
+    for (const s of sessions) {
+      if (!s.id) continue;
+      // Use raw upsert since WarmupSession may not be in Prisma schema yet
+      // Store in a generic format inside SetLog as a special record type
+      try {
+        await prisma.setLog.upsert({
+          where: { id: `warmup_${s.id}` },
+          create: {
+            id: `warmup_${s.id}`,
+            athleteId,
+            exerciseId: 'warmup',
+            exerciseName: 'Calentamiento',
+            setNumber: 1,
+            weightKg: 0,
+            reps: s.durationSec || 0,  // store duration in reps field
+            notes: `Calentamiento ${Math.floor((s.durationSec||0)/60)} min${s.notes ? ' - ' + s.notes : ''}`,
+            createdAt: new Date(s.startedAt || Date.now()),
+            workoutLogId: `warmup_${s.id}`,
+            dayName: 'Calentamiento',
+          },
+          update: {}  // don't overwrite if already synced
+        });
+        upserted.push(s.id);
+      } catch (_) { /* skip individual failures */ }
+    }
+
+    res.json({ synced: upserted.length, ids: upserted });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
 // ─── WORKOUT LOGS (LEGACY) ─────────────────────────────────────────────────────
 app.get('/api/logs/:clientId', authMiddleware, async (req, res) => {
   try {

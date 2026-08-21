@@ -151,19 +151,53 @@ fun ClientDashboardScreen(
             loading = true
             try {
                 warmupHistory = ServerRepository.getWarmupHistory()
-                // If logged in, use current-week endpoint, else fall back to clients list
-                if (ServerRepository.isLoggedIn()) {
-                    val routine = ServerRepository.getCurrentWeekRoutine()
-                    weeklyRoutine = routine
-                    // Preload all media for the week
-                    routine?.schedule?.values?.forEach { day ->
-                        preloadExerciseMedia(day.exercises)
+            } catch (_: Exception) {}
+
+            if (ServerRepository.isLoggedIn()) {
+                // ① OFFLINE-FIRST: show cached routine immediately (no network wait)
+                val cached = ServerRepository.getCachedRoutine()
+                if (cached != null) {
+                    weeklyRoutine = cached
+                    // Preload media from cache while we check for updates
+                    cached.schedule?.values?.forEach { day -> preloadExerciseMedia(day.exercises) }
+                    loading = false
+                }
+
+                // ② BACKGROUND: check if routine changed (lightweight /meta call)
+                //    Only downloads full routine if ID or updatedAt differs
+                try {
+                    val fresh = ServerRepository.checkAndRefreshRoutine()
+                    if (fresh != null) {
+                        // Routine was updated on server — show new version
+                        weeklyRoutine = fresh
+                        fresh.schedule?.values?.forEach { day -> preloadExerciseMedia(day.exercises) }
                     }
-                    // Also load exercises map for fallback names
+                } catch (_: Exception) {
+                    // Offline or server error — keep showing cached routine silently
+                }
+
+                // Load exercises map (used for fallback names)
+                try {
                     val exList = ServerRepository.getExercises()
                     exercisesMap = exList.associateBy { it.id }
-                } else {
-                    // Legacy: load from clients list
+                } catch (_: Exception) {}
+
+                // If no cache AND no network, weeklyRoutine stays null (empty state)
+                if (weeklyRoutine == null) {
+                    try {
+                        // Last resort: try full download
+                        val routine = ServerRepository.getCurrentWeekRoutine()
+                        weeklyRoutine = routine
+                        routine?.schedule?.values?.forEach { day -> preloadExerciseMedia(day.exercises) }
+                    } catch (_: Exception) {}
+                }
+
+                // Sync warmup sessions in background
+                try { ServerRepository.syncWarmupSessions() } catch (_: Exception) {}
+
+            } else {
+                // Legacy coach flow
+                try {
                     val clientList = ServerRepository.getClients()
                     clients = clientList
                     if (selectedClient == null && clientList.isNotEmpty()) selectedClient = clientList.first()
@@ -174,9 +208,9 @@ fun ClientDashboardScreen(
                         weeklyRoutine = routine
                         routine?.schedule?.values?.forEach { day -> preloadExerciseMedia(day.exercises) }
                     }
+                } catch (e: Exception) {
+                    android.util.Log.e("ClientDashboard", "Load error: ${e.message}")
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("ClientDashboard", "Load error: ${e.message}")
             }
             loading = false
         }
