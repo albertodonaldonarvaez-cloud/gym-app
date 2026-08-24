@@ -12,9 +12,10 @@ export default function LoginPage() {
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
 
-  // If already logged in, redirect to dashboard
-  if (user && (user.role === 'ADMIN' || user.role === 'COACH')) {
-    return <Navigate to="/" replace />
+  // If already logged in, redirect based on role
+  if (user) {
+    if (user.role === 'CLIENT') return <Navigate to="/client" replace />
+    return <Navigate to="/dashboard" replace />
   }
 
   const handleSubmit = async (e: FormEvent) => {
