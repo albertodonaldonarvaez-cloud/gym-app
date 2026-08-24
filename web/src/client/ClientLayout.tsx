@@ -1,33 +1,48 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Home, BookOpen, History, LogOut } from 'lucide-react'
+import { Home, BookOpen, History } from 'lucide-react'
 import { clearAuth } from './clientApi'
+import { getUser } from './clientApi'
 
 export default function ClientLayout() {
   const navigate = useNavigate()
-  const logout = () => { clearAuth(); navigate('/login') }
+  const user = getUser()
+
+  const logout = () => {
+    clearAuth()
+    navigate('/login')
+  }
 
   return (
-    <div className="flex flex-col bg-[#F2F2F7] min-h-screen">
-      <div className="flex-1 overflow-auto pb-[80px]">
+    <div className="flex flex-col bg-[#F2F2F7] min-h-screen overscroll-none">
+      {/* Main content */}
+      <div className="flex-1 overflow-auto scroll-ios no-scrollbar pb-[82px]">
         <Outlet />
       </div>
-      <nav
-        className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-gray-200/60 z-50"
+
+      {/* iOS-style bottom tab bar */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="flex items-center justify-around px-2 pt-2 pb-1">
-          <TabItem to="/client" label="Inicio" icon={Home} end />
-          <TabItem to="/client/catalog" label="Catalogo" icon={BookOpen} />
-          <TabItem to="/client/history" label="Historial" icon={History} />
-          <button
-            onClick={logout}
-            className="flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-gray-400 active:scale-95 transition-all"
-          >
-            <LogOut className="w-6 h-6" />
-            <span className="text-[10px] font-medium">Salir</span>
-          </button>
+        <div className="mx-3 mb-2 bg-white/80 backdrop-blur-2xl rounded-2xl shadow-lg shadow-black/10 border border-white/60">
+          <div className="flex items-center justify-around px-2 py-2">
+            <TabItem to="/client" end label="Inicio" icon={Home} />
+            <TabItem to="/client/catalog" label="Catalogo" icon={BookOpen} />
+            <TabItem to="/client/history" label="Historial" icon={History} />
+            <button
+              onClick={logout}
+              className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl text-gray-400 active:bg-gray-100 transition-colors"
+            >
+              <div className="w-7 h-7 rounded-full bg-[#007AFF]/10 flex items-center justify-center">
+                <span className="text-[10px] font-bold text-[#007AFF]">
+                  {user?.name?.[0]?.toUpperCase() ?? '?'}
+                </span>
+              </div>
+              <span className="text-[10px] font-medium">Yo</span>
+            </button>
+          </div>
         </div>
-      </nav>
+      </div>
     </div>
   )
 }
@@ -40,15 +55,17 @@ function TabItem({ to, label, icon: Icon, end }: {
       to={to}
       end={end}
       className={({ isActive }) =>
-        `flex flex-col items-center gap-1 px-3 py-1 rounded-xl transition-all active:scale-95 ${
-          isActive ? 'text-[#007AFF]' : 'text-gray-400'
+        `flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all ${
+          isActive ? 'text-[#007AFF]' : 'text-gray-400 active:bg-gray-100'
         }`
       }
     >
       {({ isActive }) => (
         <>
-          <Icon className={`w-6 h-6 ${isActive ? 'stroke-2' : 'stroke-[1.5px]'}`} />
-          <span className={`text-[10px] ${isActive ? 'font-semibold' : 'font-medium'}`}>{label}</span>
+          <div className={`relative transition-transform ${isActive ? 'scale-110' : ''}`}>
+            <Icon className={`w-6 h-6 ${isActive ? 'stroke-2' : 'stroke-[1.5px]'}`} />
+          </div>
+          <span className={`text-[10px] transition-all ${isActive ? 'font-bold' : 'font-medium'}`}>{label}</span>
         </>
       )}
     </NavLink>

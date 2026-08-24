@@ -1,6 +1,5 @@
 // GymAura Client API
-const BASE = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL != null
-  ? (import.meta as any).env.VITE_API_URL : ''
+const BASE = (import.meta as any).env?.VITE_API_URL ?? ''
 
 export const getToken = () => localStorage.getItem('gymaura_token') ?? ''
 export const getUser = (): AuthUser | null => {
@@ -14,13 +13,16 @@ export const clearAuth = () => {
   localStorage.removeItem('gymaura_token')
   localStorage.removeItem('gymaura_user')
 }
-const authHeader = () => ({ 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json' })
+const authHeader = () => ({
+  'Authorization': `Bearer ${getToken()}`,
+  'Content-Type': 'application/json'
+})
 
 export interface AuthUser { id: string; name: string; email: string; role: string }
 export interface RoutineExercise {
   exerciseId: string; name?: string; sets: number; reps: number
-  targetWeightKg?: number; rpe?: number; notes?: string; mediaUrl?: string
-  instructions?: string; muscleGroup?: string
+  targetWeightKg?: number; rpe?: number; notes?: string
+  mediaUrl?: string; instructions?: string; muscleGroup?: string
 }
 export interface DaySchedule { dayName: string; focus: string; exercises: RoutineExercise[] }
 export interface WeeklyRoutine { id?: string; title?: string; schedule: Record<string, DaySchedule> }
@@ -58,7 +60,9 @@ export async function getRoutineMeta() {
   return r.json() as Promise<{ id: string | null; updatedAt: number | null }>
 }
 
-export async function getExercises(params?: { page?: number; limit?: number; search?: string; muscle?: string }) {
+export async function getExercises(params?: {
+  page?: number; limit?: number; search?: string; muscle?: string
+}) {
   const q = new URLSearchParams()
   if (params?.page) q.set('page', String(params.page))
   if (params?.limit) q.set('limit', String(params.limit))
@@ -78,17 +82,21 @@ export async function getLastPerformance(exerciseId: string) {
 }
 
 export async function syncSets(sets: SetLog[]) {
-  await fetch(`${BASE}/api/v1/workouts/sync`, {
+  if (sets.length === 0) return
+  const r = await fetch(`${BASE}/api/v1/workouts/sync`, {
     method: 'POST', headers: authHeader(), body: JSON.stringify({ sets })
   })
+  if (!r.ok) throw new Error(`Sync failed: ${r.status}`)
 }
 
 export async function getWorkoutHistory(): Promise<WorkoutHistoryEntry[]> {
   const r = await fetch(`${BASE}/api/v1/user/workout-history`, { headers: authHeader() })
   if (!r.ok) return []
-  return r.json()
+  const data = await r.json()
+  return Array.isArray(data) ? data : (data.sets ?? data.logs ?? [])
 }
 
+// ─── Offline cache ───
 const ROUTINE_KEY = 'gymaura_routine_cache'
 const ROUTINE_META_KEY = 'gymaura_routine_meta'
 
@@ -109,7 +117,8 @@ export async function getRoutineOfflineFirst(): Promise<WeeklyRoutine | null> {
     const meta = await getRoutineMeta()
     if (!meta.id) return cached
     const cachedMeta = getCachedMeta()
-    const changed = !cachedMeta || cachedMeta.id !== meta.id || (!!meta.updatedAt && cachedMeta.updatedAt < meta.updatedAt)
+    const changed = !cachedMeta || cachedMeta.id !== meta.id ||
+      (!!meta.updatedAt && cachedMeta.updatedAt < meta.updatedAt)
     if (changed) {
       const fresh = await getCurrentRoutine()
       setCachedRoutine(fresh, { id: meta.id, updatedAt: meta.updatedAt ?? Date.now() })
@@ -119,17 +128,19 @@ export async function getRoutineOfflineFirst(): Promise<WeeklyRoutine | null> {
   } catch { return cached }
 }
 
-const PENDING_SETS_KEY = 'gymaura_pending_sets'
+// ─── Pending sets queue (offline) ───
+const PENDING_KEY = 'gymaura_pending_sets'
 export function getPendingSets(): SetLog[] {
-  try { return JSON.parse(localStorage.getItem(PENDING_SETS_KEY) ?? '[]') } catch { return [] }
+  try { return JSON.parse(localStorage.getItem(PENDING_KEY) ?? '[]') } catch { return [] }
 }
 export function addPendingSet(s: SetLog) {
   const sets = getPendingSets(); sets.push(s)
-  localStorage.setItem(PENDING_SETS_KEY, JSON.stringify(sets))
+  localStorage.setItem(PENDING_KEY, JSON.stringify(sets))
 }
-export function clearPendingSets() { localStorage.removeItem(PENDING_SETS_KEY) }
+export function clearPendingSets() { localStorage.removeItem(PENDING_KEY) }
 export async function flushPendingSets() {
   const sets = getPendingSets()
   if (sets.length === 0) return
-  try { await syncSets(sets); clearPendingSets() } catch { /* retry later */ }
+  await syncSets(sets)
+  clearPendingSets()
 }

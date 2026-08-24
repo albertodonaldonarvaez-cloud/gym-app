@@ -29,44 +29,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (t && u) {
       try {
         const parsed = JSON.parse(u)
-        // Validate the role is still allowed
-        if (parsed.role === 'ADMIN' || parsed.role === 'COACH') {
-          // Verify the token is still valid by calling a lightweight endpoint
-          const BASE = import.meta.env.VITE_API_URL ?? ''
-          fetch(`${BASE}/api/health`, {
-            headers: { Authorization: `Bearer ${t}` }
-          })
-            .then(res => {
-              if (res.ok) {
-                setToken(t)
-                setUser(parsed)
-              } else {
-                // Token expired or invalid, clear
-                localStorage.removeItem('gymaura_token')
-                localStorage.removeItem('gymaura_user')
-              }
-            })
-            .catch(() => {
-              // Network error - still allow cached session for offline use
-              setToken(t)
-              setUser(parsed)
-            })
-            .finally(() => setLoading(false))
-          return
-        }
-      } catch { /* ignore corrupted data */ }
-      // If we get here, data was invalid
-      localStorage.removeItem('gymaura_token')
-      localStorage.removeItem('gymaura_user')
+        setToken(t)
+        setUser(parsed)
+        // Verify token in background (non-blocking)
+        const BASE = import.meta.env.VITE_API_URL ?? ''
+        fetch(`${BASE}/api/health`, { headers: { Authorization: `Bearer ${t}` } })
+          .catch(() => {}) // offline ok — keep session
+      } catch { /* corrupted data */ }
     }
     setLoading(false)
   }, [])
 
   const login = async (email: string, password: string) => {
     const res: LoginResponse = await apiLogin(email, password)
-    if (res.user.role !== 'ADMIN' && res.user.role !== 'COACH') {
-      throw new Error('Acceso restringido: solo personal autorizado')
-    }
+    // Allow all roles: ADMIN, COACH, CLIENT
     localStorage.setItem('gymaura_token', res.token)
     localStorage.setItem('gymaura_user', JSON.stringify(res.user))
     setToken(res.token)
