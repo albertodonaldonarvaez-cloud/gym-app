@@ -36,6 +36,15 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // ─── Security middleware ──────────────────────────────────────
+// Trust nginx proxy so req.ip reflects the real client IP (rate limiters work correctly)
+app.set('trust proxy', 1);
+
+// FATAL: JWT_SECRET must be set in production
+if (IS_PROD && (!process.env.JWT_SECRET || process.env.JWT_SECRET.includes('default'))) {
+  console.error('FATAL: JWT_SECRET env variable is not set or uses default value in production. Exiting.');
+  process.exit(1);
+}
+
 // Helmet: sets secure HTTP headers (XSS, HSTS, CSP, etc.)
 app.use(helmet({
   contentSecurityPolicy: false, // disabled so nginx handles it, or can customize
@@ -505,16 +514,18 @@ app.post('/api/v1/workouts/sync', authMiddleware, async (req, res) => {
 app.get('/api/v1/user/workout-history', authMiddleware, async (req, res) => {
   try {
     const athleteId = req.user.id;
+    // Limit to last 500 sets (performance + memory protection)
     const logs = await prisma.setLog.findMany({
       where: { athleteId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
       include: { exercise: { select: { name: true, muscleGroup: true } } }
     });
     res.json(logs.map(l => ({
       id: l.id,
       clientLogId: l.clientLogId,
       exerciseId: l.exerciseId,
-      exerciseName: l.exercise?.name || '',
+      exerciseName: l.exerciseName || l.exercise?.name || '',
       workoutLogId: l.workoutLogId,
       weightKg: l.weightKg,
       reps: l.reps,
@@ -523,7 +534,7 @@ app.get('/api/v1/user/workout-history', authMiddleware, async (req, res) => {
       notes: l.notes,
       createdAt: l.createdAt.toISOString()
     })));
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error('[HISTORY] Error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
 app.get('/api/v1/exercises/:id/last-performance', authMiddleware, async (req, res) => {
@@ -562,31 +573,57 @@ app.post('/api/v1/huawei/sync-workout', authMiddleware, async (req, res) => {
 });
 
 // ─── ROUTE ALIASES (web frontend compatibility) ─────────────────────────────
-app.post('/api/auth/login', async (req, res) => {
-  // Forward to v1 endpoint
+// Same security as /api/v1/auth/login
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'email and password required' });
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const dummyHash = '$2a$12$invalidpasswordhashfortimingprotec.tionpurposesonlyx';
+    const valid = user ? await bcrypt.compare(password, user.passwordHash) : await bcrypt.compare(password, dummyHash);
+    if (!user || !valid) return res.status(401).json({ error: 'Credenciales incorrectas' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
+    console.log(`[AUTH] Login (legacy): ${user.email} (${user.role}) from ${req.ip}`);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, coachId: user.coachId } });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error('[AUTH] Legacy login error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
-app.post('/api/auth/register', async (req, res) => {
+// Register: ALWAYS creates CLIENT — role is never accepted from request body
+app.post('/api/v1/auth/register', authLimiter, async (req, res) => {
   try {
-    const { email, password, name, role = 'CLIENT', coachId } = req.body;
-    if (!email || !password || !name) return res.status(400).json({ error: 'email, password, name required' });
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: 'Email already in use' });
+    const { email, password, name, coachId } = req.body;
+    if (!email || !password || !name) return res.status(400).json({ error: 'Email, contraseña y nombre requeridos' });
+    if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) return res.status(409).json({ error: 'Email ya registrado' });
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await prisma.user.create({ data: { email, passwordHash, name, role, coachId: coachId || null } });
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    // SECURITY: role is hardcoded to CLIENT — never from body
+    const user = await prisma.user.create({
+      data: { email: normalizedEmail, passwordHash, name: name.trim(), role: 'CLIENT', coachId: coachId || null }
+    });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { console.error('[AUTH] Register error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+app.post('/api/auth/register', authLimiter, async (req, res) => {
+  try {
+    const { email, password, name, coachId } = req.body;
+    if (!email || !password || !name) return res.status(400).json({ error: 'Email, contraseña y nombre requeridos' });
+    if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) return res.status(409).json({ error: 'Email ya registrado' });
+    const passwordHash = await bcrypt.hash(password, 12);
+    // SECURITY: role hardcoded to CLIENT
+    const user = await prisma.user.create({
+      data: { email: normalizedEmail, passwordHash, name: name.trim(), role: 'CLIENT', coachId: coachId || null }
+    });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+  } catch (e) { console.error('[AUTH] Register error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
 app.get('/api/coach/clients', authMiddleware, async (req, res) => {
