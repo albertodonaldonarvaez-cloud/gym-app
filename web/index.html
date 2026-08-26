@@ -4,21 +4,52 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    <!-- PWA / iOS -->
+    <!-- ── PWA Core ─────────────────────────────────────────── -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#007AFF" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0A0A0A" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="GymAura - Tu entrenamiento personal en el bolsillo. Registra series, sigue tu rutina y mejora cada dia." />
+
+    <!-- ── iOS / Safari ──────────────────────────────────────── -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="GymAura" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Apple touch icon (iOS home screen) -->
     <link rel="apple-touch-icon" href="/icons/icon-180.png" />
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#007AFF" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-120.png" />
+    <link rel="apple-touch-icon" sizes="76x76" href="/icons/icon-76.png" />
 
-    <!-- Splash screens para iPhone (generados en runtime via manifest) -->
-    <meta name="description" content="GymAura - Tu entrenamiento personal en el bolsillo" />
+    <!-- Apple splash screens (required for true fullscreen on iOS) -->
+    <!-- iPhone 14 Pro Max -->
+    <link rel="apple-touch-startup-image"
+      media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+      href="/icons/splash-1290x2796.png" />
+    <!-- iPhone 14 / 13 / 12 -->
+    <link rel="apple-touch-startup-image"
+      media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+      href="/icons/icon-maskable-512.png" />
+    <!-- iPhone SE / 8 -->
+    <link rel="apple-touch-startup-image"
+      media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"
+      href="/icons/icon-maskable-512.png" />
 
-    <title>GymAura</title>
+    <!-- ── Android / Chrome / Edge ──────────────────────────── -->
+    <!-- Tells Chrome/Edge this is a fully capable PWA -->
+    <meta name="application-name" content="GymAura" />
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-76.png" />
+
+    <!-- ── Fonts ─────────────────────────────────────────────── -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+    <title>GymAura</title>
   </head>
   <body>
     <div id="root"></div>

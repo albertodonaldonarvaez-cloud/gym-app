@@ -22,9 +22,9 @@ export default function Layout() {
   const initials = user?.name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() ?? 'C'
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="w-64 shrink-0 flex flex-col border-r border-gray-200 bg-white">
+    <div className="flex h-screen overflow-hidden bg-gray-50">
+      {/* Sidebar — fixed height, scrolls independently */}
+      <aside className="w-64 shrink-0 flex flex-col border-r border-gray-200 bg-white overflow-y-auto">
         {/* Logo */}
         <div className="px-6 py-5 border-b border-gray-200">
           <div className="flex items-center gap-3">

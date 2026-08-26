@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { Home, BookOpen, History } from 'lucide-react'
 import { clearAuth } from './clientApi'
 import { getUser } from './clientApi'
+import InstallPrompt from './components/InstallPrompt'
 
 export default function ClientLayout() {
   const navigate = useNavigate()
@@ -18,6 +19,9 @@ export default function ClientLayout() {
       <div className="flex-1 overflow-auto scroll-ios no-scrollbar pb-[82px]">
         <Outlet />
       </div>
+
+      {/* Install prompt (iOS / Android) */}
+      <InstallPrompt />
 
       {/* iOS-style bottom tab bar */}
       <div

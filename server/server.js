@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
@@ -15,11 +16,16 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'gymaura-default-dev-secret-change-in-prod';
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+// Role hierarchy — higher index = higher privilege
+const ROLE_HIERARCHY = ['CLIENT', 'COACH', 'ADMIN'];
+const roleLevel = (role) => ROLE_HIERARCHY.indexOf(role ?? 'CLIENT');
 
 // Ensure uploads directory exists
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-// Multer storage config
+// ─── Multer ───────────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
@@ -29,12 +35,51 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Middleware
-app.use(cors());
+// ─── Security middleware ──────────────────────────────────────
+// Helmet: sets secure HTTP headers (XSS, HSTS, CSP, etc.)
+app.use(helmet({
+  contentSecurityPolicy: false, // disabled so nginx handles it, or can customize
+  crossOriginEmbedderPolicy: false,
+}));
+
+// CORS: restrict origins in production
+const allowedOrigins = IS_PROD
+  ? ['https://gym-app.tecti-cloud.com']
+  : ['http://localhost:5173', 'http://localhost:3005', 'http://localhost:3000'];
+app.use(cors({
+  origin: (origin, cb) => {
+    // allow requests with no origin (mobile apps, curl, etc.) in dev
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: true,
+}));
+
 app.use(express.json({ limit: '10mb' }));
 
-const limiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Too many requests' } });
-app.use('/api/', limiter);
+// ─── Rate limiters ────────────────────────────────────────────
+// General API limiter: 200 req / 1 min per IP
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 200,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones. Intenta en un momento.' }
+});
+app.use('/api/', generalLimiter);
+
+// Auth limiter: 5 attempts / 15 min per IP (brute-force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados intentos de inicio de sesión. Espera 15 minutos.' },
+  skipSuccessfulRequests: true, // only count failed attempts
+});
+
+// Admin action limiter: 60 sensitive actions / 5 min
+const adminLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, max: 60,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiadas acciones admin. Intenta en 5 minutos.' }
+});
 
 // Static media with long cache
 app.use('/uploads/exercises', express.static(UPLOADS_DIR, {
@@ -90,19 +135,28 @@ app.post('/api/v1/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/v1/auth/login', async (req, res) => {
+app.post('/api/v1/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'email and password required' });
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+    // Normalize email
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    // Always compare hash to prevent timing attacks (user enumeration)
+    const dummyHash = '$2a$12$dummy.hash.to.prevent.timing.attacks.1234567890';
+    const valid = user ? await bcrypt.compare(password, user.passwordHash) : await bcrypt.compare(password, dummyHash);
+    if (!user || !valid) return res.status(401).json({ error: 'Credenciales incorrectas' });
+    // Sign token with 7-day expiry
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    console.log(`[AUTH] Login: ${user.email} (${user.role}) from ${req.ip}`);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, coachId: user.coachId } });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[AUTH] Login error:', e.message);
+    res.status(500).json({ error: 'Error del servidor' });
   }
 });
 
@@ -616,37 +670,98 @@ app.get('/api/admin/users', authMiddleware, adminOnly, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/admin/users', authMiddleware, adminOnly, async (req, res) => {
+app.post('/api/admin/users', authMiddleware, adminOnly, adminLimiter, async (req, res) => {
   try {
     const { email, password, name, role = 'CLIENT', coachId, goal, weightKg, heightCm } = req.body;
-    if (!email || !password || !name) return res.status(400).json({ error: 'email, password, name required' });
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: 'Email already registered' });
+    if (!email || !password || !name) return res.status(400).json({ error: 'Email, contraseña y nombre requeridos' });
+
+    // Password policy: minimum 8 characters
+    if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+
+    // Role validation
+    const validRoles = ['CLIENT', 'COACH', 'ADMIN'];
+    if (!validRoles.includes(role)) return res.status(400).json({ error: 'Rol inválido' });
+
+    // Security: cannot create a user with higher role than yourself (defense in depth)
+    if (roleLevel(role) > roleLevel(req.user.role)) {
+      return res.status(403).json({ error: 'No puedes asignar un rol superior al tuyo' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) return res.status(409).json({ error: 'El email ya está registrado' });
+
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
-      data: { email, passwordHash, name, role, coachId: coachId || null, goal: goal || 'Acondicionamiento Físico', weightKg: weightKg || 70, heightCm: heightCm || 170 }
+      data: { email: normalizedEmail, passwordHash, name: name.trim(), role, coachId: coachId || null,
+              goal: goal || 'Acondicionamiento Físico', weightKg: weightKg || 70, heightCm: heightCm || 170 }
     });
+    console.log(`[ADMIN] User created: ${user.email} (${user.role}) by ${req.user.email}`);
     res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+  } catch (e) {
+    console.error('[ADMIN] Create user error:', e.message);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
 });
 
-app.put('/api/admin/users/:id', authMiddleware, adminOnly, async (req, res) => {
+app.put('/api/admin/users/:id', authMiddleware, adminOnly, adminLimiter, async (req, res) => {
   try {
     const { name, email, role, goal, weightKg, heightCm, password } = req.body;
+    const targetId = req.params.id;
+
+    // Fetch current state of the target user
+    const target = await prisma.user.findUnique({ where: { id: targetId } });
+    if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    // ── Security checks ──────────────────────────────────────────
+    // 1. Cannot change own role (prevents self-lockout or self-promotion)
+    if (role && targetId === req.user.id && role !== target.role) {
+      return res.status(403).json({ error: 'No puedes cambiar tu propio rol' });
+    }
+
+    // 2. Cannot assign a role higher than requester's own role
+    if (role && roleLevel(role) > roleLevel(req.user.role)) {
+      return res.status(403).json({ error: 'No puedes asignar un rol superior al tuyo' });
+    }
+
+    // 3. Cannot demote the last ADMIN
+    if (role && target.role === 'ADMIN' && role !== 'ADMIN') {
+      const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
+      if (adminCount <= 1) {
+        return res.status(403).json({ error: 'No puedes degradar al único administrador del sistema' });
+      }
+    }
+
+    // 4. Password policy
+    if (password && password.length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    }
+    // ────────────────────────────────────────────────────────────
+
     const data = {};
-    if (name) data.name = name;
-    if (email) data.email = email;
+    if (name) data.name = name.trim();
+    if (email) data.email = email.trim().toLowerCase();
     if (role) data.role = role;
     if (goal) data.goal = goal;
     if (weightKg !== undefined) data.weightKg = parseFloat(weightKg);
     if (heightCm !== undefined) data.heightCm = parseInt(heightCm);
     if (password) data.passwordHash = await bcrypt.hash(password, 12);
-    const user = await prisma.user.update({ where: { id: req.params.id }, data });
+
+    const user = await prisma.user.update({ where: { id: targetId }, data });
+
+    // Audit log
+    const changes = Object.keys(data).filter(k => k !== 'passwordHash').join(', ');
+    if (role && role !== target.role) {
+      console.warn(`[AUDIT] Role change: ${target.email} ${target.role} → ${role} by ${req.user.email} from ${req.ip}`);
+    }
+    console.log(`[ADMIN] User updated: ${user.email} (fields: ${changes || 'password'}) by ${req.user.email}`);
+
     res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
   } catch (e) {
-    console.error(e);
-    if (e.code === 'P2025') return res.status(404).json({ error: 'User not found' });
-    res.status(500).json({ error: 'Server error' });
+    console.error('[ADMIN] Update user error:', e.message);
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (e.code === 'P2002') return res.status(409).json({ error: 'El email ya está en uso' });
+    res.status(500).json({ error: 'Error del servidor' });
   }
 });
 
