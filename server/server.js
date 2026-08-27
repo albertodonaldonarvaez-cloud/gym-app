@@ -126,21 +126,26 @@ app.get('/api/health', (req, res) => {
 });
 
 // ─── AUTH ──────────────────────────────────────────────────────────────────────
-app.post('/api/v1/auth/register', async (req, res) => {
+// SECURITY: Register always forces CLIENT role — role field from body is IGNORED
+app.post('/api/v1/auth/register', authLimiter, async (req, res) => {
   try {
-    const { email, password, name, role = 'CLIENT', coachId } = req.body;
-    if (!email || !password || !name) return res.status(400).json({ error: 'email, password, name required' });
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: 'Email already in use' });
+    const { email, password, name, coachId } = req.body;
+    if (!email || !password || !name) return res.status(400).json({ error: 'Email, contraseña y nombre requeridos' });
+    if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) return res.status(409).json({ error: 'Email ya registrado' });
     const passwordHash = await bcrypt.hash(password, 12);
+    // CRITICAL SECURITY: role is hardcoded to CLIENT — never taken from req.body
     const user = await prisma.user.create({
-      data: { email, passwordHash, name, role, coachId: coachId || null }
+      data: { email: normalizedEmail, passwordHash, name: name.trim(), role: 'CLIENT', coachId: coachId || null }
     });
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
+    console.log(`[AUTH] Register: ${user.email} from ${req.ip}`);
     res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[AUTH] Register error:', e.message);
+    res.status(500).json({ error: 'Error del servidor' });
   }
 });
 
