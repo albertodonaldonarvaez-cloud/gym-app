@@ -30,10 +30,23 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
     const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, unique + path.extname(file.originalname));
+    // Only use extension from original filename — sanitize it
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    cb(null, unique + ext);
   }
 });
-const upload = multer({ storage });
+// HIGH-4 fix: Only allow image/video MIME types, max 50MB
+const ALLOWED_MIME = /^(image\/(jpeg|jpg|png|gif|webp)|video\/(mp4|webm|quicktime))$/;
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+  fileFilter: (req, file, cb) => {
+    if (!ALLOWED_MIME.test(file.mimetype)) {
+      return cb(new Error('Solo se permiten imágenes (jpg, png, gif, webp) y videos (mp4, webm)'));
+    }
+    cb(null, true);
+  }
+});
 
 // ─── Security middleware ──────────────────────────────────────
 // Trust nginx proxy so req.ip reflects the real client IP (rate limiters work correctly)
@@ -435,6 +448,18 @@ app.post('/api/v1/workouts/sync-warmup', authMiddleware, async (req, res) => {
 app.get('/api/logs/:clientId', authMiddleware, async (req, res) => {
   try {
     const { clientId } = req.params;
+    const { role, id: requesterId } = req.user;
+
+    // SECURITY: Enforce ownership — CLIENT can only read own logs
+    if (role === 'CLIENT' && requesterId !== clientId) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+    // COACH can only read logs of their assigned clients
+    if (role === 'COACH') {
+      const client = await prisma.user.findFirst({ where: { id: clientId, coachId: requesterId } });
+      if (!client) return res.status(403).json({ error: 'Este cliente no está asignado a ti' });
+    }
+
     const { exerciseId } = req.query;
     const where = { athleteId: clientId };
     if (exerciseId) where.exerciseId = exerciseId;
@@ -647,8 +672,16 @@ app.get('/api/coach/clients', authMiddleware, async (req, res) => {
 
 app.get('/api/routines/:athleteId', authMiddleware, async (req, res) => {
   try {
+    const athleteId = req.params.athleteId;
+    const { role, id: requesterId } = req.user;
+    // SECURITY: enforce ownership
+    if (role === 'CLIENT' && requesterId !== athleteId) return res.status(403).json({ error: 'Acceso denegado' });
+    if (role === 'COACH') {
+      const client = await prisma.user.findFirst({ where: { id: athleteId, coachId: requesterId } });
+      if (!client) return res.status(403).json({ error: 'Este cliente no está asignado a ti' });
+    }
     const routine = await prisma.routinePlan.findFirst({
-      where: { athleteId: req.params.athleteId },
+      where: { athleteId },
       orderBy: { updatedAt: 'desc' }
     });
     if (!routine) return res.json({ id: '', title: 'Rutina Semanal', description: '', schedule: {} });
@@ -660,16 +693,23 @@ app.post('/api/routines/:athleteId', authMiddleware, async (req, res) => {
   try {
     const { title, description, schedule } = req.body;
     const athleteId = req.params.athleteId;
+    const { role, id: requesterId } = req.user;
+    // SECURITY: only ADMIN or the assigned COACH can modify a client's routine
+    if (role === 'CLIENT') return res.status(403).json({ error: 'Sin permiso para modificar rutinas' });
+    if (role === 'COACH') {
+      const client = await prisma.user.findFirst({ where: { id: athleteId, coachId: requesterId } });
+      if (!client) return res.status(403).json({ error: 'Este cliente no está asignado a ti' });
+    }
     const existing = await prisma.routinePlan.findFirst({ where: { athleteId } });
     let routine;
     if (existing) {
       routine = await prisma.routinePlan.update({
         where: { id: existing.id },
-        data: { title, description, schedule, coachId: req.user.id }
+        data: { title, description, schedule, coachId: requesterId }
       });
     } else {
       routine = await prisma.routinePlan.create({
-        data: { coachId: req.user.id, athleteId, title, description, schedule }
+        data: { coachId: requesterId, athleteId, title, description, schedule }
       });
     }
     res.json(routine);
