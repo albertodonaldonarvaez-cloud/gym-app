@@ -24,6 +24,10 @@ model User {
   goal          String   @default("Acondicionamiento Físico")
   weightKg      Float    @default(70.0) @map("weight_kg")
   heightCm      Int      @default(170) @map("height_cm")
+  maxClients    Int      @default(10) @map("max_clients")
+  emailVerified Boolean  @default(false) @map("email_verified")
+  verifyToken   String?  @map("verify_token")
+  verifyExpires DateTime? @map("verify_expires")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 

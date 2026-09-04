@@ -7,9 +7,11 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
 const rateLimit = require('express-rate-limit');
 const { execFile } = require('child_process');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -17,6 +19,54 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'gymaura-default-dev-secret-change-in-prod';
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
 const IS_PROD = process.env.NODE_ENV === 'production';
+const SERVER_URL = process.env.SERVER_URL || 'https://gym-app.tecti-cloud.com';
+
+// ─── SMTP Configuration ──────────────────────────────────────────────────────
+const SMTP_CONFIGURED = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const smtpTransport = SMTP_CONFIGURED
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    })
+  : null;
+
+async function sendVerificationEmail(email, name, token) {
+  const verifyUrl = `${SERVER_URL}/api/v1/auth/verify/${token}`;
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px">
+      <div style="text-align:center;margin-bottom:24px">
+        <h1 style="color:#007AFF;font-size:28px;margin:0">GymAura</h1>
+        <p style="color:#6b7280;font-size:14px;margin-top:4px">Verificación de correo electrónico</p>
+      </div>
+      <p style="color:#1f2937;font-size:16px">Hola <strong>${name}</strong>,</p>
+      <p style="color:#4b5563;font-size:14px;line-height:1.6">
+        Gracias por registrarte en GymAura. Para completar tu registro, verifica tu correo electrónico:
+      </p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="${verifyUrl}" style="background:#007AFF;color:white;padding:14px 32px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block">
+          Verificar mi correo
+        </a>
+      </div>
+      <p style="color:#9ca3af;font-size:12px;text-align:center">
+        Si no creaste esta cuenta, ignora este mensaje.<br>
+        El enlace expira en 24 horas.
+      </p>
+    </div>`;
+
+  if (smtpTransport) {
+    await smtpTransport.sendMail({
+      from: process.env.SMTP_FROM || '"GymAura" <noreply@gymaura.com>',
+      to: email,
+      subject: 'Verifica tu correo — GymAura',
+      html,
+    });
+    console.log(`[SMTP] Verification email sent to ${email}`);
+  } else {
+    console.log(`[SMTP] Not configured. Verification link for ${email}: ${verifyUrl}`);
+  }
+}
 
 // Role hierarchy — higher index = higher privilege
 const ROLE_HIERARCHY = ['CLIENT', 'COACH', 'ADMIN'];
@@ -149,13 +199,22 @@ app.post('/api/v1/auth/register', authLimiter, async (req, res) => {
     const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) return res.status(409).json({ error: 'Email ya registrado' });
     const passwordHash = await bcrypt.hash(password, 12);
-    // CRITICAL SECURITY: role is hardcoded to CLIENT — never taken from req.body
+    // Generate email verification token
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
     const user = await prisma.user.create({
-      data: { email: normalizedEmail, passwordHash, name: name.trim(), role: 'CLIENT', coachId: coachId || null }
+      data: {
+        email: normalizedEmail, passwordHash, name: name.trim(), role: 'CLIENT',
+        coachId: coachId || null, verifyToken, verifyExpires, emailVerified: false
+      }
     });
+    // Send verification email (non-blocking)
+    sendVerificationEmail(normalizedEmail, name.trim(), verifyToken).catch(e =>
+      console.error('[SMTP] Error sending verification:', e.message)
+    );
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
     console.log(`[AUTH] Register: ${user.email} from ${req.ip}`);
-    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, emailVerified: false } });
   } catch (e) {
     console.error('[AUTH] Register error:', e.message);
     res.status(500).json({ error: 'Error del servidor' });
@@ -166,25 +225,131 @@ app.post('/api/v1/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
-    // Normalize email
     const normalizedEmail = email.trim().toLowerCase();
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    // Always compare hash to prevent timing attacks (user enumeration)
     const dummyHash = '$2a$12$dummy.hash.to.prevent.timing.attacks.1234567890';
     const valid = user ? await bcrypt.compare(password, user.passwordHash) : await bcrypt.compare(password, dummyHash);
     if (!user || !valid) return res.status(401).json({ error: 'Credenciales incorrectas' });
-    // Sign token with 7-day expiry
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role, name: user.name },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
     console.log(`[AUTH] Login: ${user.email} (${user.role}) from ${req.ip}`);
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, coachId: user.coachId } });
+    res.json({
+      token,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, coachId: user.coachId, emailVerified: user.emailVerified }
+    });
   } catch (e) {
     console.error('[AUTH] Login error:', e.message);
     res.status(500).json({ error: 'Error del servidor' });
   }
+});
+
+// ─── EMAIL VERIFICATION ────────────────────────────────────────────────────────
+app.get('/api/v1/auth/verify/:token', async (req, res) => {
+  try {
+    const user = await prisma.user.findFirst({
+      where: { verifyToken: req.params.token, verifyExpires: { gt: new Date() } }
+    });
+    if (!user) {
+      return res.status(400).send(`
+        <html><body style="font-family:-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f9fafb">
+          <div style="text-align:center;max-width:400px;padding:32px">
+            <h2 style="color:#ef4444;margin-bottom:12px">❌ Enlace inválido o expirado</h2>
+            <p style="color:#6b7280;font-size:14px">Solicita un nuevo enlace de verificación desde la app.</p>
+          </div>
+        </body></html>
+      `);
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true, verifyToken: null, verifyExpires: null }
+    });
+    console.log(`[AUTH] Email verified: ${user.email}`);
+    res.send(`
+      <html><body style="font-family:-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f9fafb">
+        <div style="text-align:center;max-width:400px;padding:32px">
+          <h2 style="color:#34C759;margin-bottom:12px">✅ Correo verificado</h2>
+          <p style="color:#1f2937;font-size:16px;font-weight:600">${user.name}</p>
+          <p style="color:#6b7280;font-size:14px;margin-top:8px">Tu correo electrónico ha sido verificado exitosamente. Ya puedes cerrar esta ventana.</p>
+        </div>
+      </body></html>
+    `);
+  } catch (e) { console.error('[AUTH] Verify error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+app.post('/api/v1/auth/resend-verify', authMiddleware, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (user.emailVerified) return res.json({ message: 'Email ya verificado', emailVerified: true });
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await prisma.user.update({ where: { id: user.id }, data: { verifyToken, verifyExpires } });
+    await sendVerificationEmail(user.email, user.name, verifyToken);
+    res.json({ message: 'Email de verificación reenviado', emailVerified: false });
+  } catch (e) { console.error('[AUTH] Resend verify error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// ─── COACH: CREATE CLIENT (with quota) ──────────────────────────────────────────
+app.post('/api/v1/coach/clients', authMiddleware, async (req, res) => {
+  try {
+    const { role, id: coachId } = req.user;
+    if (role !== 'COACH' && role !== 'ADMIN') return res.status(403).json({ error: 'Solo coaches pueden agregar clientes' });
+
+    // Check quota for COACH (ADMIN has no limit)
+    if (role === 'COACH') {
+      const coach = await prisma.user.findUnique({ where: { id: coachId } });
+      const currentClients = await prisma.user.count({ where: { coachId, role: 'CLIENT' } });
+      if (coach.maxClients > 0 && currentClients >= coach.maxClients) {
+        return res.status(403).json({
+          error: `Límite alcanzado: tienes ${currentClients}/${coach.maxClients} clientes. Contacta al admin para aumentar tu cuota.`
+        });
+      }
+    }
+
+    const { email, password, name, goal, weightKg, heightCm } = req.body;
+    if (!email || !password || !name) return res.status(400).json({ error: 'Email, contraseña y nombre requeridos' });
+    if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) return res.status(409).json({ error: 'Email ya registrado' });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const client = await prisma.user.create({
+      data: {
+        email: normalizedEmail, passwordHash, name: name.trim(), role: 'CLIENT',
+        coachId, goal: goal || 'Acondicionamiento Físico',
+        weightKg: parseFloat(weightKg) || 70, heightCm: parseInt(heightCm) || 170,
+        verifyToken, verifyExpires, emailVerified: false
+      }
+    });
+
+    sendVerificationEmail(normalizedEmail, name.trim(), verifyToken).catch(e =>
+      console.error('[SMTP] Error sending verification:', e.message)
+    );
+
+    console.log(`[COACH] ${req.user.email} created client ${client.email}`);
+    res.status(201).json({
+      id: client.id, email: client.email, name: client.name, role: client.role,
+      coachId: client.coachId, goal: client.goal, weightKg: client.weightKg, heightCm: client.heightCm
+    });
+  } catch (e) { console.error('[COACH] Create client error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+app.get('/api/v1/coach/client-quota', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'COACH' && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo coaches' });
+    }
+    const coach = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const currentClients = await prisma.user.count({ where: { coachId: req.user.id, role: 'CLIENT' } });
+    res.json({ current: currentClients, max: coach.maxClients, remaining: Math.max(0, coach.maxClients - currentClients) });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
 // ─── LEGACY ENDPOINTS (backward compat) ────────────────────────────────────────
@@ -719,14 +884,23 @@ app.post('/api/routines/:athleteId', authMiddleware, async (req, res) => {
 // ─── ADMIN ENDPOINTS ────────────────────────────────────────────────────────
 app.get('/api/admin/stats', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const [totalUsers, totalCoaches, totalClients, totalExercises, unassigned] = await Promise.all([
+    const [totalUsers, totalCoaches, totalClients, totalExercises, unassigned, unverified, coaches] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { role: 'COACH' } }),
       prisma.user.count({ where: { role: 'CLIENT' } }),
       prisma.exercise.count(),
       prisma.user.count({ where: { role: 'CLIENT', coachId: null } }),
+      prisma.user.count({ where: { emailVerified: false } }),
+      prisma.user.findMany({
+        where: { role: 'COACH' },
+        select: { id: true, name: true, email: true, maxClients: true, _count: { select: { clients: true } } }
+      }),
     ]);
-    res.json({ totalUsers, totalCoaches, totalClients, totalExercises, unassigned });
+    const coachQuotas = coaches.map(c => ({
+      id: c.id, name: c.name, email: c.email,
+      current: c._count.clients, max: c.maxClients
+    }));
+    res.json({ totalUsers, totalCoaches, totalClients, totalExercises, unassigned, unverified, coachQuotas });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -743,28 +917,29 @@ app.get('/api/admin/users', authMiddleware, adminOnly, async (req, res) => {
     }
     const users = await prisma.user.findMany({
       where,
-      select: { id: true, email: true, name: true, role: true, avatar: true, goal: true, weightKg: true, heightCm: true, coachId: true, createdAt: true,
-        coach: { select: { id: true, name: true, email: true } }
+      select: {
+        id: true, email: true, name: true, role: true, avatar: true, goal: true,
+        weightKg: true, heightCm: true, coachId: true, createdAt: true,
+        maxClients: true, emailVerified: true,
+        coach: { select: { id: true, name: true, email: true } },
+        _count: { select: { clients: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json(users);
+    res.json(users.map(u => ({ ...u, clientCount: u._count?.clients || 0, _count: undefined })));
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 app.post('/api/admin/users', authMiddleware, adminOnly, adminLimiter, async (req, res) => {
   try {
-    const { email, password, name, role = 'CLIENT', coachId, goal, weightKg, heightCm } = req.body;
+    const { email, password, name, role = 'CLIENT', coachId, goal, weightKg, heightCm, maxClients } = req.body;
     if (!email || !password || !name) return res.status(400).json({ error: 'Email, contraseña y nombre requeridos' });
 
-    // Password policy: minimum 8 characters
     if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
 
-    // Role validation
     const validRoles = ['CLIENT', 'COACH', 'ADMIN'];
     if (!validRoles.includes(role)) return res.status(400).json({ error: 'Rol inválido' });
 
-    // Security: cannot create a user with higher role than yourself (defense in depth)
     if (roleLevel(role) > roleLevel(req.user.role)) {
       return res.status(403).json({ error: 'No puedes asignar un rol superior al tuyo' });
     }
@@ -774,12 +949,24 @@ app.post('/api/admin/users', authMiddleware, adminOnly, adminLimiter, async (req
     if (existing) return res.status(409).json({ error: 'El email ya está registrado' });
 
     const passwordHash = await bcrypt.hash(password, 12);
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const user = await prisma.user.create({
-      data: { email: normalizedEmail, passwordHash, name: name.trim(), role, coachId: coachId || null,
-              goal: goal || 'Acondicionamiento Físico', weightKg: weightKg || 70, heightCm: heightCm || 170 }
+      data: {
+        email: normalizedEmail, passwordHash, name: name.trim(), role,
+        coachId: coachId || null,
+        goal: goal || 'Acondicionamiento Físico',
+        weightKg: weightKg || 70, heightCm: heightCm || 170,
+        maxClients: (role === 'COACH' && maxClients != null) ? parseInt(maxClients) : 10,
+        emailVerified: false, verifyToken, verifyExpires
+      }
     });
+    // Send verification email
+    sendVerificationEmail(normalizedEmail, name.trim(), verifyToken).catch(e =>
+      console.error('[SMTP] Error sending verification:', e.message)
+    );
     console.log(`[ADMIN] User created: ${user.email} (${user.role}) by ${req.user.email}`);
-    res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role });
+    res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role, maxClients: user.maxClients });
   } catch (e) {
     console.error('[ADMIN] Create user error:', e.message);
     res.status(500).json({ error: 'Error del servidor' });
@@ -788,37 +975,28 @@ app.post('/api/admin/users', authMiddleware, adminOnly, adminLimiter, async (req
 
 app.put('/api/admin/users/:id', authMiddleware, adminOnly, adminLimiter, async (req, res) => {
   try {
-    const { name, email, role, goal, weightKg, heightCm, password } = req.body;
+    const { name, email, role, goal, weightKg, heightCm, password, maxClients, emailVerified } = req.body;
     const targetId = req.params.id;
 
-    // Fetch current state of the target user
     const target = await prisma.user.findUnique({ where: { id: targetId } });
     if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-    // ── Security checks ──────────────────────────────────────────
-    // 1. Cannot change own role (prevents self-lockout or self-promotion)
+    // Security checks
     if (role && targetId === req.user.id && role !== target.role) {
       return res.status(403).json({ error: 'No puedes cambiar tu propio rol' });
     }
-
-    // 2. Cannot assign a role higher than requester's own role
     if (role && roleLevel(role) > roleLevel(req.user.role)) {
       return res.status(403).json({ error: 'No puedes asignar un rol superior al tuyo' });
     }
-
-    // 3. Cannot demote the last ADMIN
     if (role && target.role === 'ADMIN' && role !== 'ADMIN') {
       const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
       if (adminCount <= 1) {
         return res.status(403).json({ error: 'No puedes degradar al único administrador del sistema' });
       }
     }
-
-    // 4. Password policy
     if (password && password.length < 8) {
       return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
     }
-    // ────────────────────────────────────────────────────────────
 
     const data = {};
     if (name) data.name = name.trim();
@@ -828,17 +1006,18 @@ app.put('/api/admin/users/:id', authMiddleware, adminOnly, adminLimiter, async (
     if (weightKg !== undefined) data.weightKg = parseFloat(weightKg);
     if (heightCm !== undefined) data.heightCm = parseInt(heightCm);
     if (password) data.passwordHash = await bcrypt.hash(password, 12);
+    if (maxClients !== undefined) data.maxClients = parseInt(maxClients);
+    if (emailVerified !== undefined) data.emailVerified = Boolean(emailVerified);
 
     const user = await prisma.user.update({ where: { id: targetId }, data });
 
-    // Audit log
     const changes = Object.keys(data).filter(k => k !== 'passwordHash').join(', ');
     if (role && role !== target.role) {
       console.warn(`[AUDIT] Role change: ${target.email} ${target.role} → ${role} by ${req.user.email} from ${req.ip}`);
     }
     console.log(`[ADMIN] User updated: ${user.email} (fields: ${changes || 'password'}) by ${req.user.email}`);
 
-    res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
+    res.json({ id: user.id, email: user.email, name: user.name, role: user.role, maxClients: user.maxClients, emailVerified: user.emailVerified });
   } catch (e) {
     console.error('[ADMIN] Update user error:', e.message);
     if (e.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });

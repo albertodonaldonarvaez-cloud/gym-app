@@ -3,7 +3,7 @@ import { getAdminUsers, createAdminUser, updateAdminUser, deleteAdminUser } from
 import type { AdminUser } from '../api'
 import {
   Users, Search, Plus, Edit3, Trash2, Loader2, X,
-  Shield, UserCheck, User, AlertCircle, Check
+  Shield, UserCheck, User, AlertCircle, Check, MailCheck, MailX
 } from 'lucide-react'
 
 const ROLE_TABS = ['ALL', 'ADMIN', 'COACH', 'CLIENT'] as const
@@ -35,6 +35,8 @@ export default function UsersPage() {
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
   const [formRole, setFormRole] = useState('CLIENT')
+  const [formMaxClients, setFormMaxClients] = useState(10)
+  const [formEmailVerified, setFormEmailVerified] = useState(false)
 
   const loadUsers = () => {
     setLoading(true)
@@ -53,6 +55,7 @@ export default function UsersPage() {
 
   const resetForm = () => {
     setFormName(''); setFormEmail(''); setFormPassword(''); setFormRole('CLIENT')
+    setFormMaxClients(10); setFormEmailVerified(false)
     setShowModal(false); setEditUser(null)
   }
 
@@ -61,6 +64,8 @@ export default function UsersPage() {
     setFormName(u.name)
     setFormEmail(u.email)
     setFormRole(u.role)
+    setFormMaxClients(u.maxClients ?? 10)
+    setFormEmailVerified(u.emailVerified ?? false)
     setFormPassword('')
     setShowModal(true)
   }
@@ -69,13 +74,16 @@ export default function UsersPage() {
     setSaving(true); setError(''); setSuccess('')
     try {
       if (editUser) {
-        const data: Record<string, unknown> = { name: formName, email: formEmail, role: formRole }
+        const data: Record<string, unknown> = { name: formName, email: formEmail, role: formRole, emailVerified: formEmailVerified }
+        if (formRole === 'COACH') data.maxClients = formMaxClients
         if (formPassword) data.password = formPassword
         await updateAdminUser(editUser.id, data)
         setSuccess(`Usuario "${formName}" actualizado`)
       } else {
         if (!formPassword) { setError('Contraseña requerida'); setSaving(false); return }
-        await createAdminUser({ email: formEmail, password: formPassword, name: formName, role: formRole })
+        const data: Record<string, unknown> = { email: formEmail, password: formPassword, name: formName, role: formRole }
+        if (formRole === 'COACH') data.maxClients = formMaxClients
+        await createAdminUser(data as any)
         setSuccess(`Usuario "${formName}" creado exitosamente`)
       }
       resetForm()
@@ -169,6 +177,7 @@ export default function UsersPage() {
                   <th>Usuario</th>
                   <th>Rol</th>
                   <th>Coach Asignado</th>
+                  <th>Clientes</th>
                   <th>Registrado</th>
                   <th>Acciones</th>
                 </tr>
@@ -187,7 +196,14 @@ export default function UsersPage() {
                           </div>
                           <div>
                             <p className="font-semibold text-gray-900 text-sm">{u.name}</p>
-                            <p className="text-xs text-gray-500">{u.email}</p>
+                            <div className="flex items-center gap-1">
+                              <p className="text-xs text-gray-500">{u.email}</p>
+                              {u.emailVerified ? (
+                                <MailCheck className="w-3.5 h-3.5 text-green-500" title="Email verificado" />
+                              ) : (
+                                <MailX className="w-3.5 h-3.5 text-red-500" title="Email no verificado" />
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -198,6 +214,9 @@ export default function UsersPage() {
                       </td>
                       <td className="py-4 px-6 text-sm text-gray-500">
                         {u.coach ? u.coach.name : u.role === 'CLIENT' ? <span className="text-red-600 text-xs">Sin asignar</span> : '—'}
+                      </td>
+                      <td className="py-4 px-6 text-sm text-gray-500">
+                        {u.role === 'COACH' ? `${u.clientCount || 0}/${u.maxClients || 10}` : '—'}
                       </td>
                       <td className="py-4 px-6 text-sm text-gray-500">
                         {new Date(u.createdAt).toLocaleDateString('es-ES')}
@@ -267,10 +286,39 @@ export default function UsersPage() {
                   ))}
                 </div>
               </div>
+              
+              {formRole === 'COACH' && (
+                <div>
+                  <label className="label">Máximo de clientes</label>
+                  <input 
+                    className="input" 
+                    type="number" 
+                    min="1" 
+                    value={formMaxClients} 
+                    onChange={e => setFormMaxClients(Number(e.target.value))} 
+                  />
+                </div>
+              )}
+
+              {editUser && (
+                <div className="flex items-center gap-2 pt-2">
+                  <input 
+                    type="checkbox" 
+                    id="emailVerified" 
+                    checked={formEmailVerified} 
+                    onChange={e => setFormEmailVerified(e.target.checked)} 
+                    className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 border-gray-300" 
+                  />
+                  <label htmlFor="emailVerified" className="text-sm font-medium text-gray-700 cursor-pointer">
+                    Email verificado
+                  </label>
+                </div>
+              )}
+
               <button
                 onClick={handleSave}
                 disabled={saving || !formName || !formEmail}
-                className="btn-primary w-full justify-center py-3"
+                className="btn-primary w-full justify-center py-3 mt-4"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {editUser ? 'Guardar Cambios' : 'Crear Usuario'}

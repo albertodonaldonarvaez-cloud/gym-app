@@ -154,6 +154,17 @@ export interface AdminUser {
   coachId: string | null
   createdAt: string
   coach?: { id: string; name: string; email: string } | null
+  maxClients: number
+  emailVerified: boolean
+  clientCount: number
+}
+
+export interface CoachQuota {
+  id: string
+  name: string
+  email: string
+  current: number
+  max: number
 }
 
 export interface AdminStats {
@@ -162,6 +173,8 @@ export interface AdminStats {
   totalClients: number
   totalExercises: number
   unassigned: number
+  unverified: number
+  coachQuotas: CoachQuota[]
 }
 
 // ─── Admin API ────────────────────────────────────────────────────────────────
@@ -196,3 +209,15 @@ export const assignCoach = (clientId: string, coachId: string) =>
 export const unassignCoach = (clientId: string) =>
   fetch(`${BASE}/api/admin/unassign`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ clientId }) })
     .then(r => handleResponse<{ id: string; name: string; coachId: null }>(r))
+
+export const getCoachQuota = () =>
+  fetch(`${BASE}/api/v1/coach/client-quota`, { headers: getHeaders() })
+    .then(r => handleResponse<{ current: number; max: number; remaining: number }>(r))
+
+export const coachCreateClient = (data: { email: string; password: string; name: string; goal?: string; weightKg?: number; heightCm?: number }) =>
+  fetch(`${BASE}/api/v1/coach/clients`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(data) })
+    .then(r => handleResponse<{ id: string; email: string; name: string; role: string }>(r))
+
+export const resendVerification = () =>
+  fetch(`${BASE}/api/v1/auth/resend-verify`, { method: 'POST', headers: getHeaders() })
+    .then(r => handleResponse<{ message: string; emailVerified: boolean }>(r))
