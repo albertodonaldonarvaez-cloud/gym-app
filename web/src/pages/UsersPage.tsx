@@ -199,9 +199,9 @@ export default function UsersPage() {
                             <div className="flex items-center gap-1">
                               <p className="text-xs text-gray-500">{u.email}</p>
                               {u.emailVerified ? (
-                                <MailCheck className="w-3.5 h-3.5 text-green-500" title="Email verificado" />
+                                <span title="Email verificado"><MailCheck className="w-3.5 h-3.5 text-green-500" /></span>
                               ) : (
-                                <MailX className="w-3.5 h-3.5 text-red-500" title="Email no verificado" />
+                                <span title="Email no verificado"><MailX className="w-3.5 h-3.5 text-red-500" /></span>
                               )}
                             </div>
                           </div>

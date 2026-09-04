@@ -6,6 +6,8 @@ interface AuthUser {
   name: string
   email: string
   role: string
+  maxClients?: number
+  emailVerified?: boolean
 }
 
 interface AuthCtx {
