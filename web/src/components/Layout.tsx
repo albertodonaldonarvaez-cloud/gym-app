@@ -7,12 +7,12 @@ import {
 import clsx from 'clsx'
 
 const navItems = [
-  { to: '/',            icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
-  { to: '/users',       icon: Users,           label: 'Usuarios',       id: 'nav-users',        roles: ['ADMIN'] },
-  { to: '/assignments', icon: UserCheck,        label: 'Asignaciones',   id: 'nav-assignments',  roles: ['ADMIN'] },
-  { to: '/routines',    icon: Calendar,         label: 'Rutinas',        id: 'nav-routines',     roles: ['ADMIN', 'COACH'] },
-  { to: '/exercises',   icon: Dumbbell,         label: 'Ejercicios',     id: 'nav-exercises',    roles: ['ADMIN', 'COACH'] },
-  { to: '/settings',    icon: Settings,         label: 'Configuración',  id: 'nav-settings',     roles: ['ADMIN'] },
+  { to: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
+  { to: '/dashboard/users',       icon: Users,           label: 'Usuarios',       id: 'nav-users',        roles: ['ADMIN'] },
+  { to: '/dashboard/assignments', icon: UserCheck,        label: 'Asignaciones',   id: 'nav-assignments',  roles: ['ADMIN'] },
+  { to: '/dashboard/routines',    icon: Calendar,         label: 'Rutinas',        id: 'nav-routines',     roles: ['ADMIN', 'COACH'] },
+  { to: '/dashboard/exercises',   icon: Dumbbell,         label: 'Ejercicios',     id: 'nav-exercises',    roles: ['ADMIN', 'COACH'] },
+  { to: '/dashboard/settings',    icon: Settings,         label: 'Configuración',  id: 'nav-settings',     roles: ['ADMIN'] },
 ]
 
 export default function Layout() {
@@ -49,7 +49,7 @@ export default function Layout() {
               key={to}
               to={to}
               id={id}
-              end={to === '/'}
+              end={to === '/dashboard'}
               className={({ isActive }) =>
                 clsx('nav-item group', isActive && 'active')
               }
