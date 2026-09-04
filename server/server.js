@@ -21,18 +21,44 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads', 'exercises');
 const IS_PROD = process.env.NODE_ENV === 'production';
 const SERVER_URL = process.env.SERVER_URL || 'https://gym-app.tecti-cloud.com';
 
-// ─── SMTP Configuration ──────────────────────────────────────────────────────
-const SMTP_CONFIGURED = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-const smtpTransport = SMTP_CONFIGURED
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT) || 587,
-      secure: false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    })
-  : null;
+// ─── SMTP Configuration (reads from DB → env → disabled) ────────────────────
+let _smtpTransport = null;
+
+async function getSmtpConfig() {
+  try {
+    const settings = await prisma.systemSetting.findMany({ where: { category: 'smtp' } });
+    const cfg = {};
+    for (const s of settings) cfg[s.key] = s.value;
+    // DB settings take priority, then env vars
+    const host = cfg.smtp_host || process.env.SMTP_HOST || '';
+    const user = cfg.smtp_user || process.env.SMTP_USER || '';
+    const pass = cfg.smtp_pass || process.env.SMTP_PASS || '';
+    const port = parseInt(cfg.smtp_port || process.env.SMTP_PORT || '587');
+    const from = cfg.smtp_from || process.env.SMTP_FROM || '"GymAura" <noreply@gymaura.com>';
+    const enabled = cfg.smtp_enabled === 'true' || !!(process.env.SMTP_HOST && process.env.SMTP_USER);
+    return { host, user, pass, port, from, enabled: enabled && !!host && !!user && !!pass };
+  } catch (e) {
+    // DB table might not exist yet during first run
+    const host = process.env.SMTP_HOST || '';
+    const user = process.env.SMTP_USER || '';
+    const pass = process.env.SMTP_PASS || '';
+    return { host, user, pass, port: 587, from: '"GymAura" <noreply@gymaura.com>', enabled: !!(host && user && pass) };
+  }
+}
+
+async function getSmtpTransport() {
+  const cfg = await getSmtpConfig();
+  if (!cfg.enabled) return null;
+  // Recreate transport if config changed
+  _smtpTransport = nodemailer.createTransport({
+    host: cfg.host, port: cfg.port, secure: cfg.port === 465,
+    auth: { user: cfg.user, pass: cfg.pass },
+  });
+  return _smtpTransport;
+}
 
 async function sendVerificationEmail(email, name, token) {
+  const cfg = await getSmtpConfig();
   const verifyUrl = `${SERVER_URL}/api/v1/auth/verify/${token}`;
   const html = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px">
@@ -55,18 +81,15 @@ async function sendVerificationEmail(email, name, token) {
       </p>
     </div>`;
 
-  if (smtpTransport) {
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || '"GymAura" <noreply@gymaura.com>',
-      to: email,
-      subject: 'Verifica tu correo — GymAura',
-      html,
-    });
+  const transport = await getSmtpTransport();
+  if (transport) {
+    await transport.sendMail({ from: cfg.from, to: email, subject: 'Verifica tu correo — GymAura', html });
     console.log(`[SMTP] Verification email sent to ${email}`);
   } else {
     console.log(`[SMTP] Not configured. Verification link for ${email}: ${verifyUrl}`);
   }
 }
+
 
 // Role hierarchy — higher index = higher privilege
 const ROLE_HIERARCHY = ['CLIENT', 'COACH', 'ADMIN'];
@@ -1076,6 +1099,59 @@ app.put('/api/admin/unassign', authMiddleware, adminOnly, async (req, res) => {
     const user = await prisma.user.update({ where: { id: clientId }, data: { coachId: null } });
     res.json({ id: user.id, name: user.name, coachId: null });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── ADMIN SETTINGS ──────────────────────────────────────────────────────────
+app.get('/api/admin/settings', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const settings = await prisma.systemSetting.findMany({ orderBy: { category: 'asc' } });
+    // Group by category
+    const grouped = {};
+    for (const s of settings) {
+      if (!grouped[s.category]) grouped[s.category] = {};
+      // Mask passwords — never send full password to frontend
+      if (s.key.includes('pass') || s.key.includes('secret') || s.key.includes('api_key')) {
+        grouped[s.category][s.key] = s.value ? '••••••••' : '';
+      } else {
+        grouped[s.category][s.key] = s.value;
+      }
+    }
+    res.json(grouped);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error cargando configuración' }); }
+});
+
+app.put('/api/admin/settings', authMiddleware, adminOnly, adminLimiter, async (req, res) => {
+  try {
+    const { settings } = req.body; // Array of {key, value, category}
+    if (!Array.isArray(settings)) return res.status(400).json({ error: 'settings array required' });
+
+    for (const { key, value, category } of settings) {
+      if (!key || typeof value !== 'string') continue;
+      // Skip masked values (user didn't change the password)
+      if (value === '••••••••') continue;
+      await prisma.systemSetting.upsert({
+        where: { key },
+        create: { key, value, category: category || 'general' },
+        update: { value },
+      });
+    }
+
+    console.log(`[ADMIN] Settings updated by ${req.user.email}: ${settings.map(s => s.key).join(', ')}`);
+    res.json({ ok: true, message: 'Configuración guardada' });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error guardando configuración' }); }
+});
+
+// Test SMTP connection
+app.post('/api/admin/settings/test-smtp', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const transport = await getSmtpTransport();
+    if (!transport) return res.status(400).json({ ok: false, error: 'SMTP no configurado. Guarda la configuración primero.' });
+    await transport.verify();
+    res.json({ ok: true, message: 'Conexión SMTP exitosa ✅' });
+  } catch (e) {
+    console.error('[SMTP] Test failed:', e.message);
+    res.json({ ok: false, error: `Error de conexión: ${e.message}` });
+  }
 });
 
 // ─── ROUTINE TEMPLATES ────────────────────────────────────────────────────────

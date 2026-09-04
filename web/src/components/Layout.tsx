@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import {
   LayoutDashboard, Calendar, Dumbbell, LogOut, ChevronRight,
-  Bell, User, Users, UserCheck
+  Bell, User, Users, UserCheck, Settings
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/assignments', icon: UserCheck,        label: 'Asignaciones',   id: 'nav-assignments',  roles: ['ADMIN'] },
   { to: '/routines',    icon: Calendar,         label: 'Rutinas',        id: 'nav-routines',     roles: ['ADMIN', 'COACH'] },
   { to: '/exercises',   icon: Dumbbell,         label: 'Ejercicios',     id: 'nav-exercises',    roles: ['ADMIN', 'COACH'] },
+  { to: '/settings',    icon: Settings,         label: 'Configuración',  id: 'nav-settings',     roles: ['ADMIN'] },
 ]
 
 export default function Layout() {

@@ -7,6 +7,7 @@ import RoutinesPage  from './pages/RoutinesPage'
 import ExercisesPage from './pages/ExercisesPage'
 import UsersPage     from './pages/UsersPage'
 import AssignmentsPage from './pages/AssignmentsPage'
+import SettingsPage  from './pages/SettingsPage'
 import ClientApp     from './client/ClientApp'
 
 function RequireCoachOrAdmin({ children }: { children: React.ReactNode }) {
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="assignments" element={<AssignmentsPage />} />
             <Route path="routines" element={<RoutinesPage />} />
             <Route path="exercises" element={<ExercisesPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           {/* Client mobile-first app */}
