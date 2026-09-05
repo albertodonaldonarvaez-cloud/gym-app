@@ -401,7 +401,7 @@ export default function DashboardPage() {
                   athletes.map((athlete) => (
                     <Link 
                       key={athlete.id}
-                      to={`/dashboard/routines?athlete=${athlete.id}`}
+                      to={`/dashboard/athletes/${athlete.id}`}
                       className="card p-5 hover:border-blue-500/50 transition-colors group block"
                     >
                       <div className="flex items-start justify-between">

@@ -432,6 +432,77 @@ app.post('/api/v1/user/avatar', authMiddleware, avatarUpload.single('avatar'), a
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
+// ─── COACH: ATHLETE DETAIL ────────────────────────────────────────────────────
+app.get('/api/v1/coach/athletes/:id', authMiddleware, async (req, res) => {
+  try {
+    const { role, id: coachId } = req.user;
+    if (role !== 'COACH' && role !== 'ADMIN') return res.status(403).json({ error: 'Solo coaches' });
+
+    const athleteId = req.params.id;
+    const where = role === 'ADMIN' ? { id: athleteId, role: 'CLIENT' } : { id: athleteId, coachId, role: 'CLIENT' };
+    const athlete = await prisma.user.findFirst({
+      where,
+      select: { id: true, email: true, name: true, avatar: true, goal: true, weightKg: true, heightCm: true, emailVerified: true, createdAt: true }
+    });
+    if (!athlete) return res.status(404).json({ error: 'Atleta no encontrado' });
+
+    // Workout sessions (last 30)
+    const workouts = await prisma.workoutLog.findMany({
+      where: { athleteId },
+      orderBy: { date: 'desc' },
+      take: 30,
+      select: { id: true, date: true, dayName: true, durationSeconds: true, caloriesBurned: true,
+        setLogs: { select: { exerciseName: true, weightKg: true, reps: true, setNumber: true }, orderBy: { setNumber: 'asc' } }
+      }
+    });
+
+    // Set logs with weight progression (last 500)
+    const recentSets = await prisma.setLog.findMany({
+      where: { athleteId },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      select: { exerciseId: true, exerciseName: true, weightKg: true, reps: true, setNumber: true, createdAt: true }
+    });
+
+    // Group by exercise for weight progression
+    const exerciseProgress = {};
+    for (const s of recentSets) {
+      const key = s.exerciseName || s.exerciseId;
+      if (!exerciseProgress[key]) exerciseProgress[key] = [];
+      exerciseProgress[key].push({ weight: s.weightKg, reps: s.reps, date: s.createdAt });
+    }
+
+    // Stats
+    const totalWorkouts = await prisma.workoutLog.count({ where: { athleteId } });
+    const totalSets = await prisma.setLog.count({ where: { athleteId } });
+    const maxWeight = await prisma.setLog.aggregate({ where: { athleteId }, _max: { weightKg: true } });
+
+    // Workout frequency (last 4 weeks)
+    const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+    const recentWorkouts = await prisma.workoutLog.findMany({
+      where: { athleteId, date: { gte: fourWeeksAgo } },
+      select: { date: true }
+    });
+    const weeklyFrequency = {};
+    for (const w of recentWorkouts) {
+      const week = `Sem ${Math.ceil((Date.now() - new Date(w.date).getTime()) / (7*24*60*60*1000))}`;
+      weeklyFrequency[week] = (weeklyFrequency[week] || 0) + 1;
+    }
+
+    res.json({
+      athlete,
+      stats: { totalWorkouts, totalSets, maxWeight: maxWeight._max?.weightKg || 0 },
+      workouts: workouts.map(w => ({
+        id: w.id, date: w.date, dayName: w.dayName, durationSeconds: w.durationSeconds,
+        caloriesBurned: w.caloriesBurned, totalSets: w.setLogs.length,
+        exercises: [...new Set(w.setLogs.map(s => s.exerciseName).filter(Boolean))]
+      })),
+      exerciseProgress,
+      weeklyFrequency
+    });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
 // ─── COACH: INVITE ATHLETE (email only) ─────────────────────────────────────
 app.post('/api/v1/coach/invite', authMiddleware, async (req, res) => {
   try {
