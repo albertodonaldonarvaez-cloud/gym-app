@@ -224,9 +224,9 @@ function ExercisePicker({
             )}
           </div>
 
-          {/* Preview panel */}
+          {/* Preview panel — desktop only */}
           {hoveredEx && (
-            <div className="w-56 border-l border-gray-200 p-4 flex flex-col gap-3 slide-in overflow-hidden">
+            <div className="hidden lg:flex w-56 border-l border-gray-200 p-4 flex-col gap-3 slide-in overflow-hidden">
               <div className="aspect-video rounded-xl overflow-hidden bg-gray-100">
                 {hoveredEx.imageUrls?.[0] ? (
                   <img src={hoveredEx.imageUrls[0]} alt={hoveredEx.name}
@@ -312,7 +312,7 @@ function RoutineExerciseRow({
           <div className="flex items-center gap-1">
             <span className="text-xs text-gray-500">R</span>
             <input type="number" min={1} max={100}
-                   className="w-10 bg-gray-100 border border-gray-300 rounded-lg px-1.5 py-1 text-xs text-center text-gray-900 focus:outline-none focus:border-brand-500"
+                   className="w-12 bg-gray-100 border border-gray-300 rounded-lg px-1.5 py-1.5 text-sm text-center text-gray-900 focus:outline-none focus:border-brand-500"
                    value={item.reps}
                    onChange={e => onChange({...item, reps: Number(e.target.value)})} />
           </div>
@@ -328,7 +328,7 @@ function RoutineExerciseRow({
 
       {/* Expanded params */}
       {expanded && (
-        <div className="px-4 pb-4 pt-1 border-t border-gray-200 grid grid-cols-3 gap-3 fade-in">
+        <div className="px-4 pb-4 pt-1 border-t border-gray-200 grid grid-cols-1 sm:grid-cols-3 gap-3 fade-in">
           <div>
             <label className="label text-[10px]">Peso objetivo (kg)</label>
             <input type="number" min={0} className="input py-1.5 text-xs"
