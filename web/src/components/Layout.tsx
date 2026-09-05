@@ -2,9 +2,10 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import {
   LayoutDashboard, Calendar, Dumbbell, LogOut, ChevronRight,
-  Bell, User, Users, UserCheck, Settings
+  Bell, User, Users, UserCheck, Settings, AlertTriangle, Mail, Loader2
 } from 'lucide-react'
 import clsx from 'clsx'
+import { useState } from 'react'
 
 const navItems = [
   { to: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
@@ -18,9 +19,25 @@ const navItems = [
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
+  const BASE = import.meta.env.VITE_API_URL ?? ''
 
   const handleLogout = () => { logout(); navigate('/login') }
   const initials = user?.name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() ?? 'C'
+
+  const handleResendVerify = async () => {
+    setResending(true); setResendMsg('')
+    try {
+      const res = await fetch(`${BASE}/api/v1/auth/resend-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('gymaura_token')}` }
+      })
+      const data = await res.json()
+      setResendMsg(res.ok ? '✅ Correo enviado' : data.error || 'Error')
+    } catch { setResendMsg('Error de conexión') }
+    finally { setResending(false) }
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -100,6 +117,25 @@ export default function Layout() {
             </button>
           </div>
         </header>
+
+        {/* Email verification banner */}
+        {user && user.emailVerified === false && (
+          <div className="px-6 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-amber-800 text-sm">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Tu correo electrónico no está verificado.</span>
+              {resendMsg && <span className="text-xs font-medium">{resendMsg}</span>}
+            </div>
+            <button
+              onClick={handleResendVerify}
+              disabled={resending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs font-medium transition-colors"
+            >
+              {resending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+              Verificar ahora
+            </button>
+          </div>
+        )}
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">

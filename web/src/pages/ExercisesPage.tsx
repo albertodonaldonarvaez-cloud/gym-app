@@ -3,12 +3,26 @@ import { getExercises } from '../api'
 import type { Exercise } from '../api'
 import {
   Search, Dumbbell, ChevronLeft, ChevronRight, Filter, X,
-  ImageOff, Loader2, ChevronDown, PlayCircle
+  ImageOff, Loader2, ChevronDown, PlayCircle, Plus, Edit2, Trash2, Video
 } from 'lucide-react'
 import clsx from 'clsx'
+import { useAuth } from '../AuthContext'
 
 const CATEGORIES = ['Fuerza','Cardio','Estiramiento','Pliométricos','Powerlifting','Halterofilia','Strongman']
 const MUSCLES    = ['Pecho','Espalda','Hombros','Bíceps','Tríceps','Cuádriceps','Isquiotibiales','Glúteos','Abdomen','Gemelos','Antebrazos','Abductores','Aductores']
+
+const BASE = import.meta.env.VITE_API_URL ?? ''
+
+function getEmbedUrl(url?: string | null): string | null {
+  if (!url) return null
+  const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/))([a-zA-Z0-9_-]{11})/)
+  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`
+  
+  const tkMatch = url.match(/tiktok\.com\/.*video\/(\d+)/)
+  if (tkMatch) return `https://www.tiktok.com/embed/v2/${tkMatch[1]}`
+  
+  return null
+}
 
 function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () => void }) {
   const [imgIdx, setImgIdx] = useState(0)
@@ -23,7 +37,7 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
     >
       {/* Image */}
       <div className="relative aspect-video bg-gray-100 overflow-hidden">
-        {imgs.length > 0 && !imgError ? (
+        {imgs.length > 0 && !imgError && !getEmbedUrl(imgs[0]) ? (
           <>
             <img
               src={imgs[imgIdx]}
@@ -52,6 +66,11 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
               <PlayCircle className="w-6 h-6 text-gray-900/80 drop-shadow" />
             </div>
           </>
+        ) : getEmbedUrl(exercise.mediaUrl) ? (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400 bg-gray-200">
+            <Video className="w-8 h-8 opacity-50" />
+            <span className="text-xs opacity-70">Video disponible</span>
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400">
             <ImageOff className="w-8 h-8 opacity-30" />
@@ -75,31 +94,42 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
   )
 }
 
-function ExerciseModal({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
+function ExerciseModal({ exercise, onClose, onEdit, onDelete, canEdit }: { exercise: Exercise; onClose: () => void; onEdit?: () => void; onDelete?: () => void; canEdit?: boolean }) {
   const [imgIdx, setImgIdx] = useState(0)
-  const imgs = exercise.imageUrls?.length ? exercise.imageUrls : exercise.mediaUrl ? [exercise.mediaUrl] : []
+  const imgs = exercise.imageUrls?.length ? exercise.imageUrls : exercise.mediaUrl && !getEmbedUrl(exercise.mediaUrl) ? [exercise.mediaUrl] : []
   const instructions = exercise.instructions?.split('\n').filter(Boolean) ?? []
+  
+  const embedUrl = getEmbedUrl(exercise.mediaUrl)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm"
          onClick={onClose}>
       <div className="w-full max-w-2xl bg-white border border-gray-300 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
            onClick={e => e.stopPropagation()}>
-        {/* Image */}
+        {/* Header / Media */}
         <div className="relative aspect-video bg-gray-100">
-          {imgs.length > 0 && imgs[imgIdx] ? (
+          {embedUrl ? (
+            <iframe
+              src={embedUrl}
+              className="w-full h-full"
+              allowFullScreen
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            />
+          ) : imgs.length > 0 && imgs[imgIdx] ? (
             <img src={imgs[imgIdx]} alt={exercise.name} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400">
               <ImageOff className="w-12 h-12 opacity-20" />
             </div>
           )}
+          
           <button onClick={onClose} id="btn-close-modal"
-                  className="absolute top-3 right-3 p-1.5 rounded-lg bg-white/80 hover:bg-gray-900/40 text-gray-900 transition-colors">
+                  className="absolute top-3 right-3 p-1.5 rounded-lg bg-white/80 hover:bg-gray-900/40 text-gray-900 transition-colors z-10">
             <X className="w-4 h-4" />
           </button>
-          {imgs.length > 1 && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
+          
+          {!embedUrl && imgs.length > 1 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 z-10">
               <button onClick={() => setImgIdx(i => Math.max(0, i-1))}
                       className="p-1 rounded-full bg-white/80 text-gray-900 hover:bg-gray-900/40">
                 <ChevronLeft className="w-3 h-3" />
@@ -117,22 +147,36 @@ function ExerciseModal({ exercise, onClose }: { exercise: Exercise; onClose: () 
 
         {/* Content */}
         <div className="p-6 space-y-4">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">{exercise.name}</h2>
-            <div className="flex flex-wrap gap-2 mt-2">
-              <span className="badge-purple">{exercise.muscleGroup || exercise.targetMuscle}</span>
-              <span className="badge-gray">{exercise.equipment}</span>
-              <span className="badge-blue">{exercise.category}</span>
+          <div className="flex justify-between items-start gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">{exercise.name}</h2>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <span className="badge-purple">{exercise.muscleGroup || exercise.targetMuscle}</span>
+                <span className="badge-gray">{exercise.equipment}</span>
+                <span className="badge-blue">{exercise.category}</span>
+              </div>
             </div>
+            
+            {canEdit && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={onEdit} className="btn-secondary px-3 py-1.5 text-sm text-blue-600 border-blue-200 hover:bg-blue-50">
+                  <Edit2 className="w-4 h-4" />
+                  Editar
+                </button>
+                <button onClick={onDelete} className="btn-secondary px-3 py-1.5 text-sm text-red-600 border-red-200 hover:bg-red-50">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-xl bg-gray-100 text-center">
-              <p className="text-2xl font-bold text-blue-600">{exercise.defaultSets}</p>
+              <p className="text-2xl font-bold text-blue-600">{exercise.defaultSets || '-'}</p>
               <p className="text-xs text-gray-500 mt-0.5">Series sugeridas</p>
             </div>
             <div className="p-3 rounded-xl bg-gray-100 text-center">
-              <p className="text-2xl font-bold text-violet-600">{exercise.defaultReps}</p>
+              <p className="text-2xl font-bold text-violet-600">{exercise.defaultReps || '-'}</p>
               <p className="text-xs text-gray-500 mt-0.5">Reps sugeridas</p>
             </div>
           </div>
@@ -158,7 +202,217 @@ function ExerciseModal({ exercise, onClose }: { exercise: Exercise; onClose: () 
   )
 }
 
+function ExerciseFormModal({ 
+  exercise, 
+  onClose, 
+  onSaved 
+}: { 
+  exercise?: Exercise | null; 
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { token } = useAuth()
+  const isEdit = !!exercise
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  
+  const [form, setForm] = useState({
+    name: exercise?.name || '',
+    category: exercise?.category || CATEGORIES[0],
+    muscleGroup: exercise?.muscleGroup || exercise?.targetMuscle || MUSCLES[0],
+    equipment: exercise?.equipment || '',
+    defaultSets: exercise?.defaultSets || 3,
+    defaultReps: exercise?.defaultReps || 10,
+    mediaUrl: exercise?.mediaUrl || '',
+    instructions: exercise?.instructions || ''
+  })
+  
+  const [previewUrl, setPreviewUrl] = useState<string | null>(getEmbedUrl(form.mediaUrl))
+
+  useEffect(() => {
+    setPreviewUrl(getEmbedUrl(form.mediaUrl))
+  }, [form.mediaUrl])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!token) return
+    if (!form.name.trim()) {
+      setError('El nombre es requerido')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    
+    try {
+      const url = isEdit ? `${BASE}/api/exercises/${exercise.id}` : `${BASE}/api/exercises`
+      const method = isEdit ? 'PUT' : 'POST'
+      
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(form)
+      })
+      
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Error al guardar ejercicio')
+      }
+      
+      onSaved()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm"
+         onClick={onClose}>
+      <div className="w-full max-w-xl bg-white border border-gray-300 rounded-2xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col"
+           onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+          <h2 className="text-lg font-bold text-gray-900">
+            {isEdit ? 'Editar Ejercicio' : 'Nuevo Ejercicio'}
+          </h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-200 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <div className="p-6 overflow-y-auto">
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
+              {error}
+            </div>
+          )}
+          
+          <form id="exercise-form" onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="label">Nombre *</label>
+              <input 
+                className="input" 
+                value={form.name} 
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Ej. Press de Banca"
+                required
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Categoría</label>
+                <select 
+                  className="input" 
+                  value={form.category} 
+                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                >
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Músculo principal</label>
+                <select 
+                  className="input" 
+                  value={form.muscleGroup} 
+                  onChange={e => setForm(f => ({ ...f, muscleGroup: e.target.value }))}
+                >
+                  {MUSCLES.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            
+            <div>
+              <label className="label">Equipo</label>
+              <input 
+                className="input"
+                list="equipments"
+                value={form.equipment} 
+                onChange={e => setForm(f => ({ ...f, equipment: e.target.value }))}
+                placeholder="Ej. Barra, Mancuernas..."
+              />
+              <datalist id="equipments">
+                {['Barra', 'Mancuernas', 'Máquina', 'Peso Corporal', 'Cables', 'Bandas', 'Kettlebell'].map(eq => (
+                  <option key={eq} value={eq} />
+                ))}
+              </datalist>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Series default</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  className="input" 
+                  value={form.defaultSets} 
+                  onChange={e => setForm(f => ({ ...f, defaultSets: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+              <div>
+                <label className="label">Reps default</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  className="input" 
+                  value={form.defaultReps} 
+                  onChange={e => setForm(f => ({ ...f, defaultReps: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label className="label">URL del video</label>
+              <input 
+                className="input" 
+                value={form.mediaUrl} 
+                onChange={e => setForm(f => ({ ...f, mediaUrl: e.target.value }))}
+                placeholder="https://www.tiktok.com/... o YouTube URL"
+              />
+              {previewUrl && (
+                <div className="mt-3 aspect-video bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                  <iframe
+                    src={previewUrl}
+                    className="w-full h-full"
+                    allowFullScreen
+                  />
+                </div>
+              )}
+            </div>
+            
+            <div>
+              <label className="label">Instrucciones</label>
+              <textarea 
+                className="input min-h-[100px] resize-y" 
+                value={form.instructions} 
+                onChange={e => setForm(f => ({ ...f, instructions: e.target.value }))}
+                placeholder="1. Paso uno&#10;2. Paso dos..."
+              />
+            </div>
+          </form>
+        </div>
+        
+        <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="btn-secondary px-5" disabled={loading}>
+            Cancelar
+          </button>
+          <button type="submit" form="exercise-form" className="btn-primary px-5" disabled={loading}>
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : isEdit ? 'Guardar Cambios' : 'Crear Ejercicio'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ExercisesPage() {
+  const { user, token } = useAuth()
+  const isCoach = user?.role === 'COACH' || user?.role === 'ADMIN'
+
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [total, setTotal]       = useState(0)
   const [pages, setPages]       = useState(1)
@@ -168,8 +422,13 @@ export default function ExercisesPage() {
   const [category, setCategory] = useState('')
   const [muscle, setMuscle]     = useState('')
   const [equipment, setEquipment] = useState('')
+  
   const [selected, setSelected] = useState<Exercise | null>(null)
   const [showFilters, setShowFilters] = useState(false)
+  
+  // Modals state
+  const [showForm, setShowForm] = useState(false)
+  const [editExercise, setEditExercise] = useState<Exercise | null>(null)
 
   const load = useCallback(async (p = 1) => {
     setLoading(true)
@@ -190,16 +449,43 @@ export default function ExercisesPage() {
 
   useEffect(() => { setPage(1); load(1) }, [load])
 
+  const handleDelete = async (ex: Exercise) => {
+    if (!token || !window.confirm(`¿Estás seguro de eliminar el ejercicio "${ex.name}"?`)) return
+    try {
+      const res = await fetch(`${BASE}/api/exercises/${ex.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!res.ok) throw new Error('Error al eliminar')
+      setSelected(null)
+      load(page)
+    } catch (err) {
+      alert('Error al eliminar el ejercicio.')
+    }
+  }
+
   const activeFilters = [category, muscle, equipment].filter(Boolean).length
 
   return (
     <div className="space-y-6 fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Catálogo de Ejercicios</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          {total.toLocaleString()} ejercicios disponibles · Free Exercise DB
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Catálogo de Ejercicios</h1>
+          <p className="text-gray-500 text-sm mt-1">
+            {total.toLocaleString()} ejercicios disponibles
+          </p>
+        </div>
+        
+        {isCoach && (
+          <button 
+            onClick={() => { setEditExercise(null); setShowForm(true); }}
+            className="btn-primary shadow-lg shadow-brand-500/20 shrink-0"
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Nuevo Ejercicio
+          </button>
+        )}
       </div>
 
       {/* Search + filters */}
@@ -342,7 +628,35 @@ export default function ExercisesPage() {
       )}
 
       {/* Exercise detail modal */}
-      {selected && <ExerciseModal exercise={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <ExerciseModal 
+          exercise={selected} 
+          onClose={() => setSelected(null)} 
+          canEdit={isCoach && (selected as any).coachId === user?.id || isCoach} 
+          onEdit={() => {
+            setEditExercise(selected)
+            setSelected(null)
+            setShowForm(true)
+          }}
+          onDelete={() => handleDelete(selected)}
+        />
+      )}
+      
+      {/* Create/Edit Form Modal */}
+      {showForm && (
+        <ExerciseFormModal
+          exercise={editExercise}
+          onClose={() => {
+            setShowForm(false)
+            setEditExercise(null)
+          }}
+          onSaved={() => {
+            setShowForm(false)
+            setEditExercise(null)
+            load(page) // Refresh list
+          }}
+        />
+      )}
     </div>
   )
 }
