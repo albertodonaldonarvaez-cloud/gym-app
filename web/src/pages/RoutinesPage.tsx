@@ -1,7 +1,12 @@
-
+import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import {
+  getAthletes, getExercises, getRoutineForAthlete, saveRoutine
+} from '../api'
+import type { Athlete, Exercise, RoutineDay, RoutineExercise } from '../api'
 import {
   ChevronDown, Search, Plus, X, Save, Loader2, Dumbbell,
-  ChevronUp, GripVertical, Info, SlidersHorizontal, Users, FileText
+  ChevronUp, GripVertical, Info, SlidersHorizontal, Users, FileText, Trash2, Copy
 } from 'lucide-react'
 import clsx from 'clsx'
 
