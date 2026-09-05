@@ -1276,6 +1276,47 @@ app.post('/api/admin/settings/test-smtp', authMiddleware, adminOnly, async (req,
   }
 });
 
+// Send a real test email
+app.post('/api/admin/settings/test-smtp-email', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { to } = req.body;
+    if (!to) return res.status(400).json({ ok: false, error: 'Email destinatario requerido' });
+
+    const transport = await getSmtpTransport();
+    if (!transport) return res.status(400).json({ ok: false, error: 'SMTP no configurado. Guarda la configuración primero.' });
+
+    const cfg = await getSmtpConfig();
+    await transport.sendMail({
+      from: cfg.from,
+      to,
+      subject: '✅ GymAura — Correo de prueba',
+      html: `
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px">
+          <div style="text-align:center;margin-bottom:24px">
+            <h1 style="color:#007AFF;font-size:28px;margin:0">GymAura</h1>
+          </div>
+          <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:20px;text-align:center">
+            <p style="font-size:24px;margin:0 0 8px">✅</p>
+            <p style="color:#0369a1;font-weight:600;font-size:16px;margin:0">¡Correo de prueba exitoso!</p>
+            <p style="color:#64748b;font-size:13px;margin-top:8px">
+              Tu configuración SMTP funciona correctamente.<br>
+              Enviado desde el panel de administración de GymAura.
+            </p>
+          </div>
+          <p style="color:#9ca3af;font-size:11px;text-align:center;margin-top:20px">
+            ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}
+          </p>
+        </div>`
+    });
+
+    console.log(`[SMTP] Test email sent to ${to} by ${req.user.email}`);
+    res.json({ ok: true, message: `Correo enviado a ${to} ✅` });
+  } catch (e) {
+    console.error('[SMTP] Test email failed:', e.message);
+    res.json({ ok: false, error: `Error enviando: ${e.message}` });
+  }
+});
+
 // ─── ROUTINE TEMPLATES ────────────────────────────────────────────────────────
 
 // List coach's templates

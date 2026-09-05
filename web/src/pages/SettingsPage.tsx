@@ -70,6 +70,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [testEmail, setTestEmail] = useState('')
+  const [sendingTest, setSendingTest] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [dirty, setDirty] = useState<Set<string>>(new Set())
@@ -132,6 +134,20 @@ export default function SettingsPage() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error de conexión')
     } finally { setTesting(false) }
+  }
+
+  const handleSendTestEmail = async () => {
+    setSendingTest(true); setError(''); setSuccess('')
+    try {
+      const res = await fetch(`${BASE}/api/admin/settings/test-smtp-email`, {
+        method: 'POST', headers: getHeaders(), body: JSON.stringify({ to: testEmail })
+      })
+      const data = await res.json()
+      if (data.ok) setSuccess(data.message)
+      else setError(data.error)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error de conexión')
+    } finally { setSendingTest(false) }
   }
 
   const toggleSection = (cat: string) => {
@@ -244,26 +260,48 @@ export default function SettingsPage() {
                   </div>
                 ))}
 
-                {/* SMTP-specific: Test button */}
+                {/* SMTP-specific: Test buttons */}
                 {section.category === 'smtp' && (
-                  <div className="pt-2 border-t border-gray-100 flex gap-3">
-                    <button
-                      onClick={handleTestSmtp}
-                      disabled={testing}
-                      className="btn-ghost text-sm"
-                    >
-                      {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                      Probar conexión SMTP
-                    </button>
-                    <a
-                      href="https://myaccount.google.com/apppasswords"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-ghost text-sm text-blue-600 hover:text-blue-700"
-                    >
-                      <Key className="w-4 h-4" />
-                      Crear App Password (Gmail)
-                    </a>
+                  <div className="pt-3 border-t border-gray-100 space-y-3">
+                    <div>
+                      <label className="label">Enviar correo de prueba</label>
+                      <div className="flex gap-2 mt-1">
+                        <input
+                          className="input flex-1"
+                          type="email"
+                          placeholder="tu-email@ejemplo.com"
+                          value={testEmail}
+                          onChange={e => setTestEmail(e.target.value)}
+                        />
+                        <button
+                          onClick={handleSendTestEmail}
+                          disabled={sendingTest || !testEmail}
+                          className="btn-primary whitespace-nowrap"
+                        >
+                          {sendingTest ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                          Enviar prueba
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleTestSmtp}
+                        disabled={testing}
+                        className="btn-ghost text-sm"
+                      >
+                        {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Server className="w-4 h-4" />}
+                        Probar conexión
+                      </button>
+                      <a
+                        href="https://myaccount.google.com/apppasswords"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-ghost text-sm text-blue-600 hover:text-blue-700"
+                      >
+                        <Key className="w-4 h-4" />
+                        Crear App Password (Gmail)
+                      </a>
+                    </div>
                   </div>
                 )}
               </div>
