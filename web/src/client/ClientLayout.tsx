@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Home, BookOpen, History } from 'lucide-react'
+import { Home, BookOpen, History, User } from 'lucide-react'
 import { clearAuth } from './clientApi'
 import { getUser } from './clientApi'
 import InstallPrompt from './components/InstallPrompt'
@@ -7,11 +7,6 @@ import InstallPrompt from './components/InstallPrompt'
 export default function ClientLayout() {
   const navigate = useNavigate()
   const user = getUser()
-
-  const logout = () => {
-    clearAuth()
-    navigate('/login')
-  }
 
   return (
     <div className="flex flex-col bg-[#F2F2F7] min-h-screen overscroll-none">
@@ -31,19 +26,9 @@ export default function ClientLayout() {
         <div className="mx-3 mb-2 bg-white/80 backdrop-blur-2xl rounded-2xl shadow-lg shadow-black/10 border border-white/60">
           <div className="flex items-center justify-around px-2 py-2">
             <TabItem to="/client" end label="Inicio" icon={Home} />
-            <TabItem to="/client/catalog" label="Catalogo" icon={BookOpen} />
+            <TabItem to="/client/catalog" label="Catálogo" icon={BookOpen} />
             <TabItem to="/client/history" label="Historial" icon={History} />
-            <button
-              onClick={logout}
-              className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl text-gray-400 active:bg-gray-100 transition-colors"
-            >
-              <div className="w-7 h-7 rounded-full bg-[#007AFF]/10 flex items-center justify-center">
-                <span className="text-[10px] font-bold text-[#007AFF]">
-                  {user?.name?.[0]?.toUpperCase() ?? '?'}
-                </span>
-              </div>
-              <span className="text-[10px] font-medium">Yo</span>
-            </button>
+            <TabItem to="/client/profile" label="Yo" icon={User} />
           </div>
         </div>
       </div>

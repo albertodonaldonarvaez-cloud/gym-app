@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage'
 import CatalogPage from './pages/CatalogPage'
 import HistoryPage from './pages/HistoryPage'
 import WorkoutPage from './pages/WorkoutPage'
+import ClientProfilePage from './pages/ClientProfilePage'
 import { getToken, getUser } from './clientApi'
 
 function RequireClient({ children }: { children: React.ReactNode }) {
@@ -21,6 +22,7 @@ export default function ClientApp() {
           <Route index element={<HomePage />} />
           <Route path="catalog" element={<CatalogPage />} />
           <Route path="history" element={<HistoryPage />} />
+          <Route path="profile" element={<ClientProfilePage />} />
         </Route>
         <Route path="workout" element={<WorkoutPage />} />
       </Routes>
