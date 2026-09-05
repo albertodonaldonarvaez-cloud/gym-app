@@ -375,6 +375,115 @@ app.get('/api/v1/coach/client-quota', authMiddleware, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
+// ─── COACH: INVITE ATHLETE (email only) ─────────────────────────────────────
+app.post('/api/v1/coach/invite', authMiddleware, async (req, res) => {
+  try {
+    const { role, id: coachId } = req.user;
+    if (role !== 'COACH' && role !== 'ADMIN') return res.status(403).json({ error: 'Solo coaches' });
+
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email requerido' });
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Check quota
+    if (role === 'COACH') {
+      const coach = await prisma.user.findUnique({ where: { id: coachId } });
+      const currentClients = await prisma.user.count({ where: { coachId, role: 'CLIENT' } });
+      if (coach.maxClients > 0 && currentClients >= coach.maxClients) {
+        return res.status(403).json({ error: `Límite alcanzado: ${currentClients}/${coach.maxClients} clientes` });
+      }
+    }
+
+    // Check if already exists
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) {
+      if (existing.coachId === coachId) return res.status(409).json({ error: 'Este atleta ya está en tu lista' });
+      return res.status(409).json({ error: 'Este email ya tiene cuenta' });
+    }
+
+    // Create pending user (no password, no name)
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const inviteExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    const user = await prisma.user.create({
+      data: {
+        email: normalizedEmail, name: '', role: 'CLIENT',
+        coachId, inviteToken, inviteExpires, emailVerified: false
+      }
+    });
+
+    // Send invite email
+    const coachUser = await prisma.user.findUnique({ where: { id: coachId } });
+    const inviteUrl = `${SERVER_URL}/invite/${inviteToken}`;
+    const html = `
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px">
+        <div style="text-align:center;margin-bottom:24px">
+          <h1 style="color:#007AFF;font-size:28px;margin:0">GymAura</h1>
+          <p style="color:#6b7280;font-size:14px;margin-top:4px">Invitación de entrenamiento</p>
+        </div>
+        <p style="color:#1f2937;font-size:16px">¡Hola!</p>
+        <p style="color:#4b5563;font-size:14px;line-height:1.6">
+          Tu coach <strong>${coachUser?.name || 'tu entrenador'}</strong> te ha invitado a unirte a GymAura para gestionar tu entrenamiento.
+        </p>
+        <p style="color:#4b5563;font-size:14px;line-height:1.6">
+          Completa tu registro haciendo clic en el botón:
+        </p>
+        <div style="text-align:center;margin:28px 0">
+          <a href="${inviteUrl}" style="background:#007AFF;color:white;padding:14px 32px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block">
+            Completar mi registro
+          </a>
+        </div>
+        <p style="color:#9ca3af;font-size:12px;text-align:center">
+          El enlace expira en 7 días.<br>
+          Si no esperabas esta invitación, ignora este mensaje.
+        </p>
+      </div>`;
+
+    const transport = await getSmtpTransport();
+    if (transport) {
+      const cfg = await getSmtpConfig();
+      await transport.sendMail({ from: cfg.from, to: normalizedEmail, subject: `${coachUser?.name || 'Tu coach'} te invita a GymAura`, html });
+      console.log(`[INVITE] Email sent to ${normalizedEmail} by ${req.user.email}`);
+    } else {
+      console.log(`[INVITE] SMTP not configured. Invite link for ${normalizedEmail}: ${inviteUrl}`);
+    }
+
+    res.status(201).json({ ok: true, email: normalizedEmail, inviteUrl: transport ? undefined : inviteUrl });
+  } catch (e) { console.error('[INVITE] Error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// Public: Complete invite registration (athlete fills profile)
+app.post('/api/v1/auth/complete-invite', async (req, res) => {
+  try {
+    const { token, name, password, goal, weightKg, heightCm } = req.body;
+    if (!token || !name || !password) return res.status(400).json({ error: 'Token, nombre y contraseña requeridos' });
+    if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+
+    const user = await prisma.user.findFirst({
+      where: { inviteToken: token, inviteExpires: { gt: new Date() } }
+    });
+    if (!user) return res.status(400).json({ error: 'Invitación inválida o expirada' });
+    if (user.passwordHash) return res.status(400).json({ error: 'Esta invitación ya fue utilizada' });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        name: name.trim(), passwordHash,
+        goal: goal || 'Acondicionamiento Físico',
+        weightKg: parseFloat(weightKg) || 70,
+        heightCm: parseInt(heightCm) || 170,
+        emailVerified: true,
+        inviteToken: null, inviteExpires: null
+      }
+    });
+
+    const jwtToken = jwt.sign({ id: updated.id, email: updated.email, role: updated.role, name: updated.name }, JWT_SECRET, { expiresIn: '7d' });
+    console.log(`[INVITE] Completed: ${updated.email} (coach: ${updated.coachId})`);
+    res.json({ token: jwtToken, user: { id: updated.id, email: updated.email, name: updated.name, role: updated.role, emailVerified: true } });
+  } catch (e) { console.error('[INVITE] Complete error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
 // ─── LEGACY ENDPOINTS (backward compat) ────────────────────────────────────────
 app.get('/api/coach', authMiddleware, async (req, res) => {
   try {
@@ -385,12 +494,25 @@ app.get('/api/coach', authMiddleware, async (req, res) => {
 
 app.get('/api/clients', authMiddleware, async (req, res) => {
   try {
+    const where = req.user.role === 'ADMIN'
+      ? { role: 'CLIENT' }
+      : { role: 'CLIENT', coachId: req.user.id };
     const clients = await prisma.user.findMany({
-      where: { role: 'CLIENT' },
-      select: { id: true, email: true, name: true, avatar: true, goal: true, weightKg: true, heightCm: true }
+      where,
+      select: {
+        id: true, email: true, name: true, avatar: true, goal: true,
+        weightKg: true, heightCm: true, emailVerified: true, createdAt: true,
+        workoutLogs: { select: { date: true }, orderBy: { date: 'desc' }, take: 1 }
+      }
     });
-    // Map to legacy format
-    res.json(clients.map(c => ({ id: c.id, name: c.name, email: c.email, avatar: c.avatar, goal: c.goal, weightKg: c.weightKg, heightCm: c.heightCm, activeRoutineId: null })));
+    res.json(clients.map(c => ({
+      id: c.id, name: c.name || '(Pendiente)', email: c.email, avatar: c.avatar,
+      goal: c.goal, weightKg: c.weightKg, heightCm: c.heightCm,
+      emailVerified: c.emailVerified,
+      pending: !c.name,
+      lastWorkout: c.workoutLogs[0]?.date || null,
+      createdAt: c.createdAt
+    })));
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 

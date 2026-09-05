@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom';
 import { 
   Users, UserCheck, Dumbbell, Shield, TrendingUp, 
   UserX, Activity, Plus, Loader2, AlertCircle, 
-  Mail, MailCheck, Crown, ChevronRight 
+  Mail, MailCheck, Crown, ChevronRight, Send, Clock, Target, Weight
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
-import { getAdminStats, getAthletes, getExercises } from '../api';
+import { getAdminStats, getAthletes, getExercises, getCoachQuota } from '../api';
+
+const BASE = import.meta.env.VITE_API_URL ?? '';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -18,6 +20,10 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null);
   const [athletes, setAthletes] = useState<any[]>([]);
   
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteStatus, setInviteStatus] = useState<{type: 'success' | 'error', message: string, url?: string} | null>(null);
+  const [inviting, setInviting] = useState(false);
+  
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -28,15 +34,15 @@ export default function DashboardPage() {
           const adminStats = await getAdminStats();
           setStats(adminStats);
         } else if (isCoach) {
-          const [athletesData, exercisesData] = await Promise.all([
+          const [athletesData, quotaData] = await Promise.all([
             getAthletes(),
-            getExercises({ limit: 1 })
+            getCoachQuota()
           ]);
           setAthletes(athletesData);
           setStats({
-            totalExercises: exercisesData.total,
-            myQuota: user?.maxClients || 0,
-            myClients: athletesData.length
+            myQuota: quotaData.max || 0,
+            myClients: quotaData.current || 0,
+            pending: athletesData.filter(a => a.pending).length
           });
         }
       } catch (err: any) {
@@ -48,6 +54,56 @@ export default function DashboardPage() {
     
     fetchData();
   }, [isAdmin, isCoach, user]);
+
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail) return;
+    setInviting(true);
+    setInviteStatus(null);
+    
+    try {
+      const res = await fetch(`${BASE}/api/v1/coach/invite`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('gymaura_token')}`
+        },
+        body: JSON.stringify({ email: inviteEmail })
+      });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Error al enviar invitación');
+      }
+      
+      setInviteStatus({
+        type: 'success',
+        message: data.message || 'Invitación enviada correctamente',
+        url: data.inviteUrl
+      });
+      setInviteEmail('');
+      
+      // Refresh athletes list and quota
+      const [updatedAthletes, quotaData] = await Promise.all([
+        getAthletes(),
+        getCoachQuota()
+      ]);
+      setAthletes(updatedAthletes);
+      setStats((prev: any) => ({
+        ...prev,
+        myClients: quotaData.current || 0,
+        pending: updatedAthletes.filter(a => a.pending).length
+      }));
+      
+    } catch (err: any) {
+      setInviteStatus({
+        type: 'error',
+        message: err.message
+      });
+    } finally {
+      setInviting(false);
+    }
+  };
 
   const today = new Date().toLocaleDateString('es-ES', { 
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
@@ -86,15 +142,6 @@ export default function DashboardPage() {
           </h1>
           <p className="text-gray-400 capitalize">{today}</p>
         </div>
-        {isCoach && (
-          <Link 
-            to="/clients/new" 
-            className={`btn-primary flex items-center gap-2 ${stats?.myClients >= stats?.myQuota ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-          >
-            <Plus className="w-5 h-5" />
-            <span>Añadir Cliente</span>
-          </Link>
-        )}
       </div>
 
       {isAdmin && (
@@ -231,7 +278,7 @@ export default function DashboardPage() {
       )}
 
       {isCoach && (
-        <>
+        <div className="space-y-6">
           {/* Coach Stat Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="stat-card">
@@ -258,56 +305,163 @@ export default function DashboardPage() {
             </div>
             <div className="stat-card">
               <div className="flex justify-between items-start mb-2">
-                <p className="text-sm font-medium text-gray-400">Ejercicios DB</p>
-                <Dumbbell className="w-5 h-5 text-orange-400" />
+                <p className="text-sm font-medium text-gray-400">Pendientes</p>
+                <Clock className="w-5 h-5 text-yellow-400" />
               </div>
-              <p className="text-2xl font-bold text-white">{stats?.totalExercises || 0}</p>
+              <p className="text-2xl font-bold text-white">{stats?.pending || 0}</p>
             </div>
           </div>
 
-          {/* Athletes List */}
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold text-white">Mis Atletas</h2>
-            <div className="card p-0 overflow-hidden">
-              {athletes.length > 0 ? (
-                <div className="divide-y divide-gray-800/50">
-                  {athletes.map((athlete) => (
-                    <div key={athlete.id} className="p-4 flex items-center justify-between hover:bg-gray-800/30 transition-colors">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold">
-                          {athlete.name?.charAt(0) || 'A'}
-                        </div>
-                        <div>
-                          <h4 className="font-medium text-white">{athlete.name}</h4>
-                          <p className="text-sm text-gray-400">{athlete.email}</p>
-                        </div>
-                      </div>
-                      <Link 
-                        to={`/athletes/${athlete.id}`}
-                        className="btn-ghost"
-                      >
-                        Ver Perfil
-                      </Link>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Quick Actions & Invite */}
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-white">Acciones</h2>
+                <div className="grid gap-3">
+                  <Link to="/routines" className="card p-4 flex items-center hover:bg-gray-800/50 transition-colors group">
+                    <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center mr-4 group-hover:bg-blue-500 group-hover:text-white transition-colors">
+                      <Activity className="w-5 h-5" />
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-12 flex flex-col items-center justify-center text-center">
-                  <Users className="w-12 h-12 text-gray-600 mb-4" />
-                  <h3 className="text-lg font-medium text-gray-300 mb-1">Aún no tienes atletas</h3>
-                  <p className="text-gray-500 mb-6">Añade a tu primer cliente para comenzar.</p>
-                  <Link 
-                    to="/clients/new" 
-                    className="btn-primary"
-                  >
-                    Añadir Atleta
+                    <div className="flex-1">
+                      <h3 className="font-medium text-white">Rutinas</h3>
+                      <p className="text-sm text-gray-400">Gestionar entrenamientos</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-500" />
+                  </Link>
+                  <Link to="/exercises" className="card p-4 flex items-center hover:bg-gray-800/50 transition-colors group">
+                    <div className="w-10 h-10 rounded-full bg-orange-500/10 text-orange-400 flex items-center justify-center mr-4 group-hover:bg-orange-500 group-hover:text-white transition-colors">
+                      <Dumbbell className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-medium text-white">Ejercicios</h3>
+                      <p className="text-sm text-gray-400">Catálogo de movimientos</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-500" />
                   </Link>
                 </div>
-              )}
+              </div>
+
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-white">Invitar Atleta</h2>
+                <div className="card p-5">
+                  <form onSubmit={handleInvite} className="space-y-4">
+                    <div>
+                      <label htmlFor="email" className="label">Correo del atleta</label>
+                      <input 
+                        type="email" 
+                        id="email"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        placeholder="atleta@ejemplo.com"
+                        className="input"
+                        required
+                        disabled={inviting || (stats?.myClients >= stats?.myQuota)}
+                      />
+                    </div>
+                    <button 
+                      type="submit" 
+                      className="btn-primary w-full flex items-center justify-center gap-2"
+                      disabled={inviting || !inviteEmail || (stats?.myClients >= stats?.myQuota)}
+                    >
+                      {inviting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                      <span>{inviting ? 'Enviando...' : 'Enviar invitación'}</span>
+                    </button>
+                    {stats?.myClients >= stats?.myQuota && (
+                      <p className="text-xs text-red-400 text-center mt-2">
+                        Has alcanzado tu cuota máxima de atletas
+                      </p>
+                    )}
+                  </form>
+                  
+                  {inviteStatus && (
+                    <div className={`mt-4 p-3 rounded-lg text-sm ${inviteStatus.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {inviteStatus.type === 'success' ? <MailCheck className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                        <span className="font-medium">{inviteStatus.message}</span>
+                      </div>
+                      {inviteStatus.url && (
+                        <div className="mt-2 text-xs overflow-hidden">
+                          <p className="text-gray-400 mb-1">Enlace manual (si no llegó el correo):</p>
+                          <div className="bg-gray-900 p-2 rounded border border-gray-700 break-all select-all">
+                            {inviteStatus.url}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Athletes List */}
+            <div className="lg:col-span-2 space-y-4">
+              <h2 className="text-xl font-semibold text-white">Mis Atletas</h2>
+              <div className="grid gap-4">
+                {athletes.length > 0 ? (
+                  athletes.map((athlete) => (
+                    <Link 
+                      key={athlete.id}
+                      to={`/routines?athlete=${athlete.id}`}
+                      className="card p-5 hover:border-blue-500/50 transition-colors group block"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="relative">
+                            <div className="w-12 h-12 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-lg">
+                              {athlete.pending ? <Clock className="w-5 h-5" /> : (athlete.name?.charAt(0) || 'A')}
+                            </div>
+                            <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-gray-900 ${athlete.pending ? 'bg-yellow-400' : 'bg-green-500'}`} title={athlete.pending ? 'Pendiente' : 'Activo'} />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-lg text-white group-hover:text-blue-400 transition-colors">
+                              {athlete.pending ? '⏳ Pendiente' : athlete.name}
+                            </h4>
+                            <p className="text-sm text-gray-400">{athlete.email}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-gray-300">Último entreno</p>
+                          <p className="text-xs text-gray-500">
+                            {athlete.lastWorkout ? new Date(athlete.lastWorkout).toLocaleDateString() : 'Sin entrenamientos'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {!athlete.pending && (
+                        <div className="mt-4 pt-4 border-t border-gray-800/50 flex flex-wrap gap-4 text-sm">
+                          {athlete.goal && (
+                            <div className="flex items-center gap-1.5 text-gray-400">
+                              <Target className="w-4 h-4 text-blue-400" />
+                              <span>{athlete.goal}</span>
+                            </div>
+                          )}
+                          {(athlete.weightKg || athlete.heightCm) && (
+                            <div className="flex items-center gap-1.5 text-gray-400">
+                              <Weight className="w-4 h-4 text-orange-400" />
+                              <span>
+                                {athlete.weightKg ? `${athlete.weightKg}kg` : ''}
+                                {athlete.weightKg && athlete.heightCm ? ' • ' : ''}
+                                {athlete.heightCm ? `${athlete.heightCm}cm` : ''}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </Link>
+                  ))
+                ) : (
+                  <div className="card p-12 flex flex-col items-center justify-center text-center">
+                    <Users className="w-12 h-12 text-gray-600 mb-4" />
+                    <h3 className="text-lg font-medium text-gray-300 mb-1">Aún no tienes atletas</h3>
+                    <p className="text-gray-500 mb-6">Utiliza el panel de invitación para añadir a tu primer cliente.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
 }
+

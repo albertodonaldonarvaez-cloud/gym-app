@@ -16,8 +16,8 @@ enum Role {
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
-  passwordHash  String   @map("password_hash")
-  name          String
+  passwordHash  String?  @map("password_hash")
+  name          String   @default("")
   role          Role     @default(CLIENT)
   coachId       String?  @map("coach_id")
   avatar        String   @default("")
@@ -28,6 +28,8 @@ model User {
   emailVerified Boolean  @default(false) @map("email_verified")
   verifyToken   String?  @map("verify_token")
   verifyExpires DateTime? @map("verify_expires")
+  inviteToken   String?  @map("invite_token")
+  inviteExpires DateTime? @map("invite_expires")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 

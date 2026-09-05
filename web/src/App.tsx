@@ -8,6 +8,7 @@ import ExercisesPage from './pages/ExercisesPage'
 import UsersPage     from './pages/UsersPage'
 import AssignmentsPage from './pages/AssignmentsPage'
 import SettingsPage  from './pages/SettingsPage'
+import InvitePage    from './pages/InvitePage'
 import ClientApp     from './client/ClientApp'
 
 function RequireCoachOrAdmin({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/invite/:token" element={<InvitePage />} />
           <Route path="/" element={<SmartRedirect />} />
 
           {/* Coach / Admin dashboard */}
