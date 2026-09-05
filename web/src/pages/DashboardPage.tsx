@@ -401,7 +401,7 @@ export default function DashboardPage() {
                   athletes.map((athlete) => (
                     <Link 
                       key={athlete.id}
-                      to={`/routines?athlete=${athlete.id}`}
+                      to={`/dashboard/routines?athlete=${athlete.id}`}
                       className="card p-5 hover:border-blue-500/50 transition-colors group block"
                     >
                       <div className="flex items-start justify-between">
@@ -410,7 +410,7 @@ export default function DashboardPage() {
                             <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-lg">
                               {athlete.pending ? <Clock className="w-5 h-5" /> : (athlete.name?.charAt(0) || 'A')}
                             </div>
-                            <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-gray-900 ${athlete.pending ? 'bg-yellow-400' : 'bg-green-500'}`} title={athlete.pending ? 'Pendiente' : 'Activo'} />
+                            <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${athlete.pending ? 'bg-yellow-400' : 'bg-green-500'}`} title={athlete.pending ? 'Pendiente' : 'Activo'} />
                           </div>
                           <div>
                             <h4 className="font-semibold text-lg text-gray-900 group-hover:text-blue-600 transition-colors">
@@ -428,22 +428,26 @@ export default function DashboardPage() {
                       </div>
                       
                       {!athlete.pending && (
-                        <div className="mt-4 pt-4 border-t border-gray-800/50 flex flex-wrap gap-4 text-sm">
-                          {athlete.goal && (
+                        <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-4 text-sm">
+                          {athlete.goal && athlete.goal !== 'Acondicionamiento Físico' && (
                             <div className="flex items-center gap-1.5 text-gray-500">
                               <Target className="w-4 h-4 text-blue-600" />
                               <span>{athlete.goal}</span>
                             </div>
                           )}
-                          {(athlete.weightKg || athlete.heightCm) && (
+                          {athlete.weightKg && athlete.weightKg !== 70 && (
                             <div className="flex items-center gap-1.5 text-gray-500">
                               <Weight className="w-4 h-4 text-orange-600" />
-                              <span>
-                                {athlete.weightKg ? `${athlete.weightKg}kg` : ''}
-                                {athlete.weightKg && athlete.heightCm ? ' • ' : ''}
-                                {athlete.heightCm ? `${athlete.heightCm}cm` : ''}
-                              </span>
+                              <span>{athlete.weightKg}kg</span>
                             </div>
+                          )}
+                          {athlete.heightCm && athlete.heightCm !== 170 && (
+                            <div className="flex items-center gap-1.5 text-gray-500">
+                              <span>📏 {athlete.heightCm}cm</span>
+                            </div>
+                          )}
+                          {(!athlete.goal || athlete.goal === 'Acondicionamiento Físico') && (!athlete.weightKg || athlete.weightKg === 70) && (!athlete.heightCm || athlete.heightCm === 170) && (
+                            <p className="text-gray-400 text-xs italic">El atleta aún no ha completado su perfil</p>
                           )}
                         </div>
                       )}

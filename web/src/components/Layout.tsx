@@ -15,12 +15,14 @@ const navItems = [
   { to: '/dashboard/exercises',   icon: Dumbbell,         label: 'Ejercicios',     id: 'nav-exercises',    roles: ['ADMIN', 'COACH'] },
   { to: '/dashboard/settings',    icon: Settings,         label: 'Configuración',  id: 'nav-settings',     roles: ['ADMIN'] },
 ]
+import ProfileModal from './ProfileModal'
 
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [resending, setResending] = useState(false)
   const [resendMsg, setResendMsg] = useState('')
+  const [profileOpen, setProfileOpen] = useState(false)
   const BASE = import.meta.env.VITE_API_URL ?? ''
 
   const handleLogout = () => { logout(); navigate('/login') }
@@ -37,6 +39,11 @@ export default function Layout() {
       setResendMsg(res.ok ? '✅ Correo enviado' : data.error || 'Error')
     } catch { setResendMsg('Error de conexión') }
     finally { setResending(false) }
+  }
+
+  const handleProfileUpdated = (updatedUser: any) => {
+    localStorage.setItem('gymaura_user', JSON.stringify(updatedUser))
+    window.location.reload()
   }
 
   return (
@@ -112,7 +119,7 @@ export default function Layout() {
               <Bell className="w-4 h-4" />
               <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-blue-600" />
             </button>
-            <button className="btn-ghost p-2">
+            <button className="btn-ghost p-2" onClick={() => setProfileOpen(true)} title="Mi perfil">
               <User className="w-4 h-4" />
             </button>
           </div>
@@ -144,6 +151,15 @@ export default function Layout() {
           </div>
         </main>
       </div>
+
+      {user && (
+        <ProfileModal
+          isOpen={profileOpen}
+          onClose={() => setProfileOpen(false)}
+          user={user}
+          onProfileUpdated={handleProfileUpdated}
+        />
+      )}
     </div>
   )
 }

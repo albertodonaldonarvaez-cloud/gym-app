@@ -183,6 +183,28 @@ app.use('/uploads/exercises', express.static(UPLOADS_DIR, {
   lastModified: true
 }));
 
+// Avatars directory
+const AVATARS_DIR = path.join(__dirname, 'uploads', 'avatars');
+if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, AVATARS_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    cb(null, req.user.id + ext);
+  }
+});
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (!/^image\/(jpeg|jpg|png|gif|webp)$/.test(file.mimetype)) {
+      return cb(new Error('Solo imágenes (jpg, png, gif, webp)'));
+    }
+    cb(null, true);
+  }
+});
+app.use('/uploads/avatars', express.static(AVATARS_DIR, { maxAge: '7d', etag: true }));
+
 // ─── AUTH MIDDLEWARE ───────────────────────────────────────────────────────────
 function authMiddleware(req, res, next) {
   const header = req.headers['authorization'];
@@ -375,6 +397,41 @@ app.get('/api/v1/coach/client-quota', authMiddleware, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
+// ─── USER PROFILE ─────────────────────────────────────────────────────────────
+app.get('/api/v1/user/profile', authMiddleware, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, email: true, name: true, role: true, avatar: true, goal: true, weightKg: true, heightCm: true, emailVerified: true, createdAt: true }
+    });
+    res.json(user);
+  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+app.put('/api/v1/user/profile', authMiddleware, async (req, res) => {
+  try {
+    const { name, goal, weightKg, heightCm } = req.body;
+    const data = {};
+    if (name !== undefined) data.name = name.trim();
+    if (goal !== undefined) data.goal = goal;
+    if (weightKg !== undefined) data.weightKg = parseFloat(weightKg) || 70;
+    if (heightCm !== undefined) data.heightCm = parseInt(heightCm) || 170;
+
+    const updated = await prisma.user.update({ where: { id: req.user.id }, data });
+    res.json({ id: updated.id, name: updated.name, email: updated.email, role: updated.role, avatar: updated.avatar, goal: updated.goal, weightKg: updated.weightKg, heightCm: updated.heightCm, emailVerified: updated.emailVerified });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+app.post('/api/v1/user/avatar', authMiddleware, avatarUpload.single('avatar'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    await prisma.user.update({ where: { id: req.user.id }, data: { avatar: avatarUrl } });
+    // Update localStorage user in response
+    res.json({ avatar: avatarUrl });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
 // ─── COACH: INVITE ATHLETE (email only) ─────────────────────────────────────
 app.post('/api/v1/coach/invite', authMiddleware, async (req, res) => {
   try {
@@ -480,6 +537,36 @@ app.post('/api/v1/auth/complete-invite', async (req, res) => {
 
     const jwtToken = jwt.sign({ id: updated.id, email: updated.email, role: updated.role, name: updated.name }, JWT_SECRET, { expiresIn: '7d' });
     console.log(`[INVITE] Completed: ${updated.email} (coach: ${updated.coachId})`);
+
+    // Notify coach that athlete completed registration
+    if (updated.coachId) {
+      const coach = await prisma.user.findUnique({ where: { id: updated.coachId } });
+      if (coach) {
+        const transport = await getSmtpTransport();
+        if (transport) {
+          const cfg = await getSmtpConfig();
+          transport.sendMail({
+            from: cfg.from, to: coach.email,
+            subject: `🎉 ${updated.name} completó su registro en GymAura`,
+            html: `
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px">
+                <div style="text-align:center;margin-bottom:24px">
+                  <h1 style="color:#007AFF;font-size:28px;margin:0">GymAura</h1>
+                </div>
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center">
+                  <p style="font-size:24px;margin:0 0 8px">🎉</p>
+                  <p style="color:#166534;font-weight:600;font-size:16px;margin:0">¡Nuevo atleta registrado!</p>
+                  <p style="color:#4b5563;font-size:14px;margin-top:12px">
+                    <strong>${updated.name}</strong> (${updated.email}) completó su registro.<br>
+                    Ya puedes asignarle rutinas desde tu panel.
+                  </p>
+                </div>
+              </div>`
+          }).catch(e => console.error('[INVITE] Coach notification error:', e.message));
+        }
+      }
+    }
+
     res.json({ token: jwtToken, user: { id: updated.id, email: updated.email, name: updated.name, role: updated.role, emailVerified: true } });
   } catch (e) { console.error('[INVITE] Complete error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
 });
