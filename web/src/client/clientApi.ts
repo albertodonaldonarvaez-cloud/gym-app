@@ -31,7 +31,7 @@ export interface Exercise {
   instructions: string; mediaUrl: string | null; defaultSets: number; defaultReps: number
 }
 export interface SetLog {
-  exerciseId: string; exerciseName: string; weightKg: number; reps: number
+  clientLogId?: string; exerciseId: string; exerciseName: string; weightKg: number; reps: number
   setNumber: number; rpe?: number; sessionId?: string; dayName?: string; restSeconds?: number
 }
 export interface WorkoutHistoryEntry {
@@ -134,6 +134,7 @@ export function getPendingSets(): SetLog[] {
   try { return JSON.parse(localStorage.getItem(PENDING_KEY) ?? '[]') } catch { return [] }
 }
 export function addPendingSet(s: SetLog) {
+  if (!s.clientLogId) s.clientLogId = `web_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const sets = getPendingSets(); sets.push(s)
   localStorage.setItem(PENDING_KEY, JSON.stringify(sets))
 }

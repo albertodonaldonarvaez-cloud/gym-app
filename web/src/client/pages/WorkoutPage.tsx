@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { X, ChevronLeft, ChevronRight, Check, Clock, Plus, Minus, Info, Trophy } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, Check, Clock, Plus, Minus, Info, Trophy, List, SkipForward } from 'lucide-react'
 import { addPendingSet, flushPendingSets, getLastPerformance } from '../clientApi'
 import type { RoutineExercise } from '../clientApi'
 
@@ -31,14 +31,17 @@ export default function WorkoutPage() {
   const [restSecs, setRestSecs] = useState(0)
   const [isResting, setIsResting] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
+  const [showExerciseList, setShowExerciseList] = useState(false)
   const [lastPerf, setLastPerf] = useState<{ weightKg: number; reps: number } | null>(null)
   const [sessionId] = useState(() => `ws_${Date.now()}`)
   const [finishing, setFinishing] = useState(false)
+  const [completedExercises, setCompletedExercises] = useState<Set<number>>(new Set())
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const exercises = state?.exercises ?? []
   const current = exercises[currentIdx]
   const currentLogs = exerciseLogs[currentIdx] ?? []
+  const setsTarget = current?.sets ?? 3
 
   // Load last performance when exercise changes
   useEffect(() => {
@@ -82,6 +85,14 @@ export default function WorkoutPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [isResting])
 
+  // Auto-mark exercise as done when sets complete
+  useEffect(() => {
+    const logs = exerciseLogs[currentIdx] ?? []
+    if (logs.length >= setsTarget && !completedExercises.has(currentIdx)) {
+      setCompletedExercises(prev => new Set(prev).add(currentIdx))
+    }
+  }, [exerciseLogs, currentIdx, setsTarget])
+
   const logSet = useCallback(() => {
     if (!current || !weight || !reps) return
     const w = parseFloat(weight.replace(',', '.'))
@@ -89,17 +100,19 @@ export default function WorkoutPage() {
     if (isNaN(w) || isNaN(r) || w < 0 || r < 1) return
 
     const newSet: LoggedSet = { weightKg: w, reps: r, done: true }
-    setExerciseLogs(prev => ({
-      ...prev, [currentIdx]: [...(prev[currentIdx] ?? []), newSet]
-    }))
+    const newLogs = [...(exerciseLogs[currentIdx] ?? []), newSet]
+    setExerciseLogs(prev => ({ ...prev, [currentIdx]: newLogs }))
 
     addPendingSet({
       exerciseId: current.exerciseId,
       exerciseName: current.name ?? current.exerciseId,
       weightKg: w, reps: r,
-      setNumber: (exerciseLogs[currentIdx]?.length ?? 0) + 1,
+      setNumber: newLogs.length,
       sessionId, dayName: state?.dayName ?? '',
     })
+
+    // Try to sync immediately (non-blocking)
+    flushPendingSets().catch(() => {})
 
     if (navigator.vibrate) navigator.vibrate(50)
     setRestSecs(90)
@@ -118,7 +131,23 @@ export default function WorkoutPage() {
   const goToExercise = (idx: number) => {
     if (isResting) { clearInterval(timerRef.current!); setIsResting(false) }
     setShowInfo(false)
+    setShowExerciseList(false)
     setCurrentIdx(idx)
+  }
+
+  // Find next incomplete exercise
+  const findNextIncomplete = () => {
+    for (let i = 0; i < exercises.length; i++) {
+      const idx = (currentIdx + 1 + i) % exercises.length
+      const logs = exerciseLogs[idx] ?? []
+      if (logs.length < (exercises[idx]?.sets ?? 3)) return idx
+    }
+    return -1
+  }
+
+  const skipToNext = () => {
+    const next = findNextIncomplete()
+    if (next >= 0) goToExercise(next)
   }
 
   if (!state || exercises.length === 0) {
@@ -136,15 +165,19 @@ export default function WorkoutPage() {
   }
 
   const setsLogged = currentLogs.length
-  const setsTarget = current?.sets ?? 3
-  const progress = (currentIdx + (setsLogged / Math.max(setsTarget, 1)) * 0.9) / exercises.length
+  const allComplete = exercises.every((_, i) => (exerciseLogs[i]?.length ?? 0) >= (exercises[i]?.sets ?? 3))
+  const progress = exercises.reduce((acc, _, i) => {
+    const logs = exerciseLogs[i]?.length ?? 0
+    const target = exercises[i]?.sets ?? 3
+    return acc + Math.min(logs / target, 1)
+  }, 0) / exercises.length
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col overflow-hidden select-none"
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
 
       {/* Progress bar */}
-      <div className="h-0.5 bg-gray-700 flex-shrink-0">
+      <div className="h-1 bg-gray-700 flex-shrink-0">
         <div className="h-full bg-[#007AFF] transition-all duration-700 ease-out"
           style={{ width: `${Math.min(progress * 100, 100)}%` }} />
       </div>
@@ -159,13 +192,69 @@ export default function WorkoutPage() {
           <p className="text-xs text-gray-400 font-medium">{state?.focus || state?.dayName || 'Entrenamiento'}</p>
           <p className="text-sm font-bold">
             {currentIdx + 1}<span className="text-gray-500 font-normal"> / {exercises.length}</span>
+            <span className="text-gray-600 ml-2 text-xs">{totalSetsLogged} series totales</span>
           </p>
         </div>
-        <button onClick={finishWorkout}
-          className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${finishing ? 'bg-green-500/20' : 'bg-white/10 active:bg-white/20'}`}>
-          {finishing ? <Check className="w-5 h-5 text-green-400" /> : <X className="w-5 h-5" />}
-        </button>
+        <div className="flex gap-1.5">
+          <button onClick={() => setShowExerciseList(!showExerciseList)}
+            className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${showExerciseList ? 'bg-[#007AFF]/30 text-[#007AFF]' : 'bg-white/10 active:bg-white/20'}`}>
+            <List className="w-5 h-5" />
+          </button>
+          <button onClick={finishWorkout}
+            className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${finishing ? 'bg-green-500/20' : 'bg-white/10 active:bg-white/20'}`}>
+            {finishing ? <Check className="w-5 h-5 text-green-400" /> : <X className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
+
+      {/* Exercise list drawer */}
+      {showExerciseList && (
+        <div className="mx-4 mb-3 bg-gray-800 rounded-2xl overflow-hidden flex-shrink-0 max-h-60 overflow-y-auto">
+          {exercises.map((ex, i) => {
+            const logs = exerciseLogs[i] ?? []
+            const target = ex.sets ?? 3
+            const isDone = logs.length >= target
+            const isCurrent = i === currentIdx
+            return (
+              <button key={i} onClick={() => goToExercise(i)}
+                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-gray-700/50 last:border-0 ${
+                  isCurrent ? 'bg-[#007AFF]/20' : 'active:bg-gray-700/50'
+                }`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
+                  isDone ? 'bg-[#34C759] text-white' : isCurrent ? 'bg-[#007AFF] text-white' : 'bg-gray-700 text-gray-400'
+                }`}>
+                  {isDone ? <Check className="w-3.5 h-3.5" /> : i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium truncate ${isDone ? 'text-green-400' : 'text-white'}`}>
+                    {ex.name ?? ex.exerciseId}
+                  </p>
+                  <p className="text-xs text-gray-500">{logs.length}/{target} series</p>
+                </div>
+                {isDone && <span className="text-xs text-green-500 font-medium">✓ Hecho</span>}
+                {!isDone && !isCurrent && <span className="text-xs text-gray-600">Pendiente</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Exercise done banner */}
+      {completedExercises.has(currentIdx) && (
+        <div className="mx-4 mb-2 bg-green-500/20 border border-green-500/30 rounded-2xl px-4 py-3 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-400" />
+            <span className="text-green-400 font-semibold text-sm">¡Ejercicio completado!</span>
+          </div>
+          {!allComplete && (
+            <button onClick={skipToNext}
+              className="flex items-center gap-1 text-xs bg-green-500 text-white px-3 py-1.5 rounded-lg font-bold active:scale-95 transition-transform">
+              <SkipForward className="w-3.5 h-3.5" />
+              Siguiente
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Exercise name + muscle */}
       <div className="px-5 pb-3 flex-shrink-0">
@@ -184,7 +273,7 @@ export default function WorkoutPage() {
       </div>
 
       {/* GIF */}
-      <div className="mx-4 rounded-2xl bg-gray-800 overflow-hidden flex-shrink-0" style={{ height: '190px' }}>
+      <div className="mx-4 rounded-2xl bg-gray-800 overflow-hidden flex-shrink-0" style={{ height: '160px' }}>
         {current?.mediaUrl ? (
           <img src={current.mediaUrl} alt={current.name ?? ''} className="w-full h-full object-contain" />
         ) : (
@@ -228,10 +317,13 @@ export default function WorkoutPage() {
           }
         </div>
         <div className="flex gap-1.5 items-center">
+          <span className="text-xs text-gray-500 mr-1">{setsLogged}/{setsTarget}</span>
           {Array.from({ length: setsTarget }).map((_, i) => (
             <div key={i} className={`rounded-full transition-all ${
               i < setsLogged
                 ? 'w-6 h-6 bg-[#34C759] flex items-center justify-center'
+                : i === setsLogged
+                ? 'w-3 h-3 bg-[#007AFF] animate-pulse'
                 : 'w-2.5 h-2.5 bg-gray-700'
             }`}>
               {i < setsLogged && <Check className="w-3 h-3 text-white" />}
@@ -242,7 +334,7 @@ export default function WorkoutPage() {
 
       {/* Logged sets mini list */}
       {currentLogs.length > 0 && (
-        <div className="mx-4 mt-2 space-y-1 flex-shrink-0">
+        <div className="mx-4 mt-2 space-y-1 flex-shrink-0 max-h-28 overflow-y-auto">
           {currentLogs.map((s, i) => (
             <div key={i} className="flex items-center gap-2 bg-gray-800/60 rounded-xl px-3 py-2">
               <div className="w-5 h-5 rounded-full bg-[#34C759] flex items-center justify-center flex-shrink-0">
@@ -266,14 +358,14 @@ export default function WorkoutPage() {
             <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mb-1.5">Peso (kg)</p>
             <div className="flex items-center gap-1.5">
               <button onPointerDown={e => { e.preventDefault(); setWeight(w => String(Math.max(0, Math.round((parseFloat(w||'0') - 2.5)*10)/10))) }}
-                className="w-9 h-9 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
+                className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Minus className="w-4 h-4" />
               </button>
               <input type="number" inputMode="decimal" value={weight}
                 onChange={e => setWeight(e.target.value)}
-                className="flex-1 bg-gray-700 text-center text-white font-bold text-lg rounded-xl py-2 outline-none border-none min-w-0 w-0" />
+                className="flex-1 bg-gray-700 text-center text-white font-bold text-lg rounded-xl py-2.5 outline-none border-none min-w-0 w-0" />
               <button onPointerDown={e => { e.preventDefault(); setWeight(w => String(Math.round((parseFloat(w||'0') + 2.5)*10)/10)) }}
-                className="w-9 h-9 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
+                className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
             </div>
@@ -283,37 +375,49 @@ export default function WorkoutPage() {
             <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mb-1.5">Reps</p>
             <div className="flex items-center gap-1.5">
               <button onPointerDown={e => { e.preventDefault(); setReps(r => String(Math.max(1, parseInt(r||'1') - 1))) }}
-                className="w-9 h-9 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
+                className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Minus className="w-4 h-4" />
               </button>
               <input type="number" inputMode="numeric" value={reps}
                 onChange={e => setReps(e.target.value)}
-                className="flex-1 bg-gray-700 text-center text-white font-bold text-lg rounded-xl py-2 outline-none border-none min-w-0 w-0" />
+                className="flex-1 bg-gray-700 text-center text-white font-bold text-lg rounded-xl py-2.5 outline-none border-none min-w-0 w-0" />
               <button onPointerDown={e => { e.preventDefault(); setReps(r => String(parseInt(r||'0') + 1)) }}
-                className="w-9 h-9 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
+                className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
             </div>
           </div>
         </div>
         <button onClick={logSet}
-          className="w-full bg-[#34C759] text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 active:scale-[0.97] transition-transform text-base shadow-lg shadow-green-900/40">
+          className={`w-full text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 active:scale-[0.97] transition-transform text-base shadow-lg ${
+            setsLogged >= setsTarget
+              ? 'bg-orange-500 shadow-orange-900/40'
+              : 'bg-[#34C759] shadow-green-900/40'
+          }`}>
           <Check className="w-5 h-5" />
-          Registrar Serie {setsLogged + 1}
+          {setsLogged >= setsTarget ? `Serie extra ${setsLogged + 1}` : `Registrar Serie ${setsLogged + 1} / ${setsTarget}`}
         </button>
       </div>
 
-      {/* Next / Finish */}
-      <div className="flex gap-3 px-4 mb-3 flex-shrink-0">
-        {currentIdx < exercises.length - 1 ? (
-          <button onClick={() => goToExercise(currentIdx + 1)}
-            className="flex-1 bg-gray-800 text-white py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-1.5 active:bg-gray-700 transition-colors text-sm">
-            Siguiente ejercicio <ChevronRight className="w-4 h-4" />
+      {/* Next / Skip / Finish */}
+      <div className="flex gap-2 px-4 mb-3 flex-shrink-0">
+        {completedExercises.has(currentIdx) && !allComplete && (
+          <button onClick={skipToNext}
+            className="flex-1 bg-[#007AFF] text-white py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform text-sm shadow-lg shadow-blue-900/40">
+            <SkipForward className="w-4 h-4" />
+            Siguiente ejercicio
           </button>
-        ) : (
+        )}
+        {!completedExercises.has(currentIdx) && currentIdx < exercises.length - 1 && (
+          <button onClick={skipToNext}
+            className="flex-1 bg-gray-800 text-white py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-1.5 active:bg-gray-700 transition-colors text-sm">
+            <SkipForward className="w-4 h-4" /> Saltar (máquina ocupada)
+          </button>
+        )}
+        {allComplete && (
           <button onClick={finishWorkout} disabled={finishing}
             className="flex-1 bg-[#007AFF] text-white py-3.5 rounded-2xl font-bold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform text-sm shadow-lg shadow-blue-900/40 disabled:opacity-60">
-            {finishing ? 'Guardando...' : <><Check className="w-4 h-4" /> Terminar Entrenamiento</>}
+            {finishing ? 'Guardando...' : <><Trophy className="w-4 h-4" /> Terminar Entrenamiento</>}
           </button>
         )}
       </div>
@@ -329,7 +433,9 @@ export default function WorkoutPage() {
                 i === currentIdx
                   ? 'w-5 h-2 bg-[#007AFF]'
                   : isComplete
-                  ? 'w-2 h-2 bg-[#34C759]'
+                  ? 'w-2.5 h-2.5 bg-[#34C759]'
+                  : logs.length > 0
+                  ? 'w-2.5 h-2.5 bg-yellow-500'
                   : 'w-2 h-2 bg-gray-600'
               }`} />
           )
