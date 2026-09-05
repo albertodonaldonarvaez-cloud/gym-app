@@ -15,6 +15,10 @@ export interface Athlete {
   weightKg: number
   heightCm: number
   avatar: string
+  pending?: boolean
+  lastWorkout?: string | null
+  emailVerified?: boolean
+  createdAt?: string
 }
 
 export interface Exercise {
