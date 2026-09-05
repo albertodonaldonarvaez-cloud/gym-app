@@ -5,7 +5,7 @@ import {
   Bell, User, Users, UserCheck, Settings, AlertTriangle, Mail, Loader2
 } from 'lucide-react'
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const navItems = [
   { to: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
@@ -23,7 +23,30 @@ export default function Layout() {
   const [resending, setResending] = useState(false)
   const [resendMsg, setResendMsg] = useState('')
   const [profileOpen, setProfileOpen] = useState(false)
+  const [emailVerified, setEmailVerified] = useState(user?.emailVerified ?? true)
   const BASE = import.meta.env.VITE_API_URL ?? ''
+
+  // Refresh emailVerified from server on mount
+  useEffect(() => {
+    fetch(`${BASE}/api/v1/user/profile`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('gymaura_token')}` }
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.emailVerified !== undefined) {
+          setEmailVerified(d.emailVerified)
+          const stored = localStorage.getItem('gymaura_user')
+          if (stored) {
+            try {
+              const u = JSON.parse(stored)
+              u.emailVerified = d.emailVerified
+              localStorage.setItem('gymaura_user', JSON.stringify(u))
+            } catch {}
+          }
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const handleLogout = () => { logout(); navigate('/login') }
   const initials = user?.name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() ?? 'C'
@@ -126,7 +149,7 @@ export default function Layout() {
         </header>
 
         {/* Email verification banner */}
-        {user && user.emailVerified === false && (
+        {user && emailVerified === false && (
           <div className="px-6 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-amber-800 text-sm">
               <AlertTriangle className="w-4 h-4 shrink-0" />
