@@ -385,6 +385,73 @@ app.get('/api/v1/coach/client-quota', authMiddleware, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
+// ─── PASSWORD RESET ───────────────────────────────────────────────────────────
+const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
+
+async function sendResetEmail(email, name, token) {
+  const cfg = await getSmtpConfig();
+  const url = `${process.env.WEB_URL || SERVER_URL}/reset-password/${token}`;
+  const safeName = String(name || '').replace(/[<>&"]/g, '');
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px">
+      <div style="text-align:center;margin-bottom:24px">
+        <h1 style="color:#007AFF;font-size:28px;margin:0">GymAura</h1>
+        <p style="color:#6b7280;font-size:14px;margin-top:4px">Restablecer contraseña</p>
+      </div>
+      <p style="color:#1f2937;font-size:16px">Hola <strong>${safeName}</strong>,</p>
+      <p style="color:#4b5563;font-size:14px;line-height:1.6">Recibimos una solicitud para restablecer la contraseña de tu cuenta. Pulsa el botón para crear una nueva:</p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="${url}" style="background:#007AFF;color:white;padding:14px 32px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block">Crear nueva contraseña</a>
+      </div>
+      <p style="color:#9ca3af;font-size:12px;text-align:center">
+        El enlace expira en 1 hora.<br>Si no fuiste tú, ignora este mensaje: tu contraseña no cambiará.
+      </p>
+    </div>`;
+  const transport = await getSmtpTransport();
+  if (transport) {
+    await transport.sendMail({ from: cfg.from, to: email, subject: 'Restablecer contraseña — GymAura', html });
+    console.log(`[SMTP] Reset email sent to ${email}`);
+  } else {
+    console.log(`[SMTP] Not configured. Reset link for ${email}: ${url}`);
+  }
+}
+
+app.post('/api/v1/auth/forgot-password', authLimiter, async (req, res) => {
+  const generic = { message: 'Si el correo existe, recibirás un enlace para restablecer tu contraseña.' };
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'Correo requerido' });
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user && user.passwordHash) {
+      const token = crypto.randomBytes(32).toString('hex');
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { resetToken: hashToken(token), resetExpires: new Date(Date.now() + 60 * 60 * 1000) }
+      });
+      sendResetEmail(user.email, user.name, token).catch(e => console.error('[SMTP] Reset email failed:', e.message));
+    }
+    res.json(generic);
+  } catch (e) { console.error(e); res.json(generic); }
+});
+
+app.post('/api/v1/auth/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'Token y contraseña requeridos' });
+    if (String(password).length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+    const user = await prisma.user.findFirst({
+      where: { resetToken: hashToken(String(token)), resetExpires: { gt: new Date() } }
+    });
+    if (!user) return res.status(400).json({ error: 'El enlace es inválido o ya expiró. Solicita uno nuevo.' });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(password, 12), resetToken: null, resetExpires: null, emailVerified: true }
+    });
+    console.log(`[AUTH] Password reset: ${user.email}`);
+    res.json({ message: 'Contraseña actualizada' });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
 // ─── USER PROFILE ─────────────────────────────────────────────────────────────
 app.get('/api/v1/user/profile', authMiddleware, async (req, res) => {
   try {

@@ -93,6 +93,10 @@ export default function LoginPage() {
               </div>
             </div>
 
+            <div className="text-right -mt-2">
+              <Link to="/forgot-password" className="text-xs font-medium text-blue-600 hover:underline">¿Olvidaste tu contraseña?</Link>
+            </div>
+
             {error && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
                 <AlertCircle className="w-4 h-4 shrink-0" />

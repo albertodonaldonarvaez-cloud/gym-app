@@ -33,6 +33,8 @@ model User {
   lookingFor    String   @default("") @map("looking_for")
   termsAcceptedAt DateTime? @map("terms_accepted_at")
   termsVersion  String?  @map("terms_version")
+  resetToken    String?  @map("reset_token")
+  resetExpires  DateTime? @map("reset_expires")
   bodyPhotos    BodyPhoto[]
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")

@@ -11,6 +11,8 @@ import SettingsPage  from './pages/SettingsPage'
 import AthleteDetailPage from './pages/AthleteDetailPage'
 import InvitePage    from './pages/InvitePage'
 import TermsPage     from './pages/TermsPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage  from './pages/ResetPasswordPage'
 import EmailVerifiedPage from './pages/EmailVerifiedPage'
 import ClientApp     from './client/ClientApp'
 
@@ -37,6 +39,8 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/invite/:token" element={<InvitePage />} />
           <Route path="/terms" element={<TermsPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/email-verified" element={<EmailVerifiedPage />} />
           <Route path="/" element={<SmartRedirect />} />
 
