@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../AuthContext'
-import { Navigate } from 'react-router-dom'
+import { Navigate, Link } from 'react-router-dom'
 import { Dumbbell, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 
 export default function LoginPage() {
@@ -116,6 +116,9 @@ export default function LoginPage() {
 
           <p className="text-center text-xs text-gray-400 mt-5">
             Acceso exclusivo para personal autorizado
+          </p>
+          <p className="text-center text-xs text-gray-400 mt-2">
+            Al iniciar sesión aceptas los <Link to="/terms" className="text-blue-600 hover:underline font-medium">Términos y Condiciones</Link>
           </p>
         </div>
 

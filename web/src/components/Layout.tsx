@@ -2,11 +2,12 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import {
   LayoutDashboard, Calendar, Dumbbell, LogOut, ChevronRight,
-  Bell, User, Users, UserCheck, Settings, AlertTriangle, Mail, Loader2, Menu, X
+  User, Users, UserCheck, Settings, AlertTriangle, Mail, Loader2, Menu, X
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useState, useEffect } from 'react'
 import ProfileModal from './ProfileModal'
+import TermsGate from './TermsGate'
 
 const navItems = [
   { to: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
@@ -162,17 +163,14 @@ export default function Layout() {
         <header className="h-14 flex items-center justify-between px-4 md:px-6 border-b border-gray-200 shrink-0 bg-white/80 backdrop-blur-md">
           <button
             className="md:hidden btn-ghost p-2"
+            aria-label="Abrir menú"
             onClick={() => setSidebarOpen(true)}
           >
             <Menu className="w-5 h-5" />
           </button>
           <div className="hidden md:block" />
           <div className="flex items-center gap-2 md:gap-3">
-            <button className="btn-ghost p-2 relative">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-blue-600" />
-            </button>
-            <button className="btn-ghost p-2" onClick={() => setProfileOpen(true)} title="Mi perfil">
+            <button className="btn-ghost p-2" onClick={() => setProfileOpen(true)} title="Mi perfil" aria-label="Mi perfil">
               <User className="w-4 h-4" />
             </button>
           </div>

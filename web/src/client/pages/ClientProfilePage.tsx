@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Camera, Save, Loader2, LogOut, ChevronRight, Plus, Minus, User, Mail, Target, Weight, Ruler } from 'lucide-react'
+import { useNavigate, Link } from 'react-router-dom'
+import { Camera, Save, Loader2, LogOut, Plus, Minus, FileText, ChevronRight } from 'lucide-react'
+import BodyPhotosManager from '../../components/BodyPhotosManager'
 import { getToken, getUser, clearAuth } from '../clientApi'
 
 const BASE = (import.meta as any).env?.VITE_API_URL ?? ''
@@ -20,6 +21,7 @@ export default function ClientProfilePage() {
   const [weightKg, setWeightKg] = useState(70)
   const [heightCm, setHeightCm] = useState(170)
   const [avatar, setAvatar] = useState('')
+  const [lookingFor, setLookingFor] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -36,6 +38,7 @@ export default function ClientProfilePage() {
         setWeightKg(d.weightKg || 70)
         setHeightCm(d.heightCm || 170)
         setAvatar(d.avatar || '')
+        setLookingFor(d.lookingFor || '')
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -47,7 +50,7 @@ export default function ClientProfilePage() {
       const res = await fetch(`${BASE}/api/v1/user/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ name, goal, weightKg, heightCm })
+        body: JSON.stringify({ name, goal, weightKg, heightCm, lookingFor })
       })
       if (res.ok) {
         const updated = await res.json()
@@ -194,8 +197,30 @@ export default function ClientProfilePage() {
         </div>
       </div>
 
-      {/* Save */}
-      <button
+      {/* What are you looking for */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">¿Qué buscas lograr?</label>
+        <textarea
+          className="w-full mt-2 text-[15px] text-gray-900 bg-gray-50 rounded-xl p-3 border-0 outline-none resize-none placeholder:text-gray-400 focus:ring-2 focus:ring-[#007AFF]/30"
+          rows={4}
+          maxLength={1000}
+          value={lookingFor}
+          onChange={e => setLookingFor(e.target.value)}
+          placeholder="Cuéntale a tu coach qué quieres lograr: bajar de peso, ganar fuerza, prepararte para una competencia, tus lesiones, cuántos días puedes entrenar…"
+        />
+        <p className="text-[11px] text-gray-400 mt-1 text-right">{lookingFor.length}/1000</p>
+      </div>
+
+      {/* Body photos */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Fotos de progreso</label>
+          <span className="text-[10px] font-semibold text-[#007AFF] bg-blue-50 px-2 py-0.5 rounded-full">Opcional · Privado</span>
+        </div>
+        <BodyPhotosManager mode="owner" />
+      </div>
+
+      {/* Save */}      <button
         onClick={handleSave}
         disabled={saving}
         className="w-full py-4 rounded-2xl bg-[#007AFF] text-white font-semibold text-base flex items-center justify-center gap-2 active:bg-[#0066DD] transition-colors disabled:opacity-50"
@@ -203,8 +228,14 @@ export default function ClientProfilePage() {
         {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : saved ? '✅ Guardado' : <><Save className="w-5 h-5" /> Guardar cambios</>}
       </button>
 
-      {/* Logout */}
-      <button
+      {/* Legal */}
+      <Link to="/terms" className="w-full py-3.5 px-4 rounded-2xl bg-white text-gray-700 font-medium text-sm flex items-center gap-3 shadow-sm active:bg-gray-50 transition-colors">
+        <FileText className="w-5 h-5 text-gray-400" />
+        <span className="flex-1">Términos y Condiciones</span>
+        <ChevronRight className="w-4 h-4 text-gray-300" />
+      </Link>
+
+      {/* Logout */}      <button
         onClick={handleLogout}
         className="w-full py-3 rounded-2xl bg-white text-red-500 font-medium text-base flex items-center justify-center gap-2 shadow-sm active:bg-red-50 transition-colors"
       >

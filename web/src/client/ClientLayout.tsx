@@ -3,6 +3,7 @@ import { Home, BookOpen, History, User } from 'lucide-react'
 import { clearAuth } from './clientApi'
 import { getUser } from './clientApi'
 import InstallPrompt from './components/InstallPrompt'
+import TermsGate from '../components/TermsGate'
 
 export default function ClientLayout() {
   const navigate = useNavigate()
@@ -17,6 +18,7 @@ export default function ClientLayout() {
 
       {/* Install prompt (iOS / Android) */}
       <InstallPrompt />
+      <TermsGate />
 
       {/* iOS-style bottom tab bar */}
       <div

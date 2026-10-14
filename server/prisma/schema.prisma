@@ -30,6 +30,10 @@ model User {
   verifyExpires DateTime? @map("verify_expires")
   inviteToken   String?  @map("invite_token")
   inviteExpires DateTime? @map("invite_expires")
+  lookingFor    String   @default("") @map("looking_for")
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
+  termsVersion  String?  @map("terms_version")
+  bodyPhotos    BodyPhoto[]
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -171,4 +175,16 @@ model SystemSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
+}
+model BodyPhoto {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  filename  String
+  label     String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("body_photos")
 }

@@ -293,35 +293,23 @@ app.post('/api/v1/auth/login', authLimiter, async (req, res) => {
 
 // ─── EMAIL VERIFICATION ────────────────────────────────────────────────────────
 app.get('/api/v1/auth/verify/:token', async (req, res) => {
+  const webBase = process.env.WEB_URL || SERVER_URL;
   try {
     const user = await prisma.user.findFirst({
       where: { verifyToken: req.params.token, verifyExpires: { gt: new Date() } }
     });
-    if (!user) {
-      return res.status(400).send(`
-        <html><body style="font-family:-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f9fafb">
-          <div style="text-align:center;max-width:400px;padding:32px">
-            <h2 style="color:#ef4444;margin-bottom:12px">❌ Enlace inválido o expirado</h2>
-            <p style="color:#6b7280;font-size:14px">Solicita un nuevo enlace de verificación desde la app.</p>
-          </div>
-        </body></html>
-      `);
-    }
+    if (!user) return res.redirect(302, `${webBase}/email-verified?status=invalid`);
     await prisma.user.update({
       where: { id: user.id },
       data: { emailVerified: true, verifyToken: null, verifyExpires: null }
     });
     console.log(`[AUTH] Email verified: ${user.email}`);
-    res.send(`
-      <html><body style="font-family:-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f9fafb">
-        <div style="text-align:center;max-width:400px;padding:32px">
-          <h2 style="color:#34C759;margin-bottom:12px">✅ Correo verificado</h2>
-          <p style="color:#1f2937;font-size:16px;font-weight:600">${user.name}</p>
-          <p style="color:#6b7280;font-size:14px;margin-top:8px">Tu correo electrónico ha sido verificado exitosamente. Ya puedes cerrar esta ventana.</p>
-        </div>
-      </body></html>
-    `);
-  } catch (e) { console.error('[AUTH] Verify error:', e.message); res.status(500).json({ error: 'Error del servidor' }); }
+    const first = encodeURIComponent((user.name || '').split(' ')[0]);
+    res.redirect(302, `${webBase}/email-verified?status=ok&name=${first}&role=${user.role}`);
+  } catch (e) {
+    console.error('[AUTH] Verify error:', e.message);
+    res.redirect(302, `${webBase}/email-verified?status=error`);
+  }
 });
 
 app.post('/api/v1/auth/resend-verify', authMiddleware, async (req, res) => {
@@ -402,7 +390,7 @@ app.get('/api/v1/user/profile', authMiddleware, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, email: true, name: true, role: true, avatar: true, goal: true, weightKg: true, heightCm: true, emailVerified: true, createdAt: true }
+      select: { id: true, email: true, name: true, role: true, avatar: true, goal: true, weightKg: true, heightCm: true, emailVerified: true, createdAt: true, lookingFor: true, termsAcceptedAt: true, termsVersion: true }
     });
     res.json(user);
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
@@ -410,16 +398,107 @@ app.get('/api/v1/user/profile', authMiddleware, async (req, res) => {
 
 app.put('/api/v1/user/profile', authMiddleware, async (req, res) => {
   try {
-    const { name, goal, weightKg, heightCm } = req.body;
+    const { name, goal, weightKg, heightCm, lookingFor } = req.body;
     const data = {};
-    if (name !== undefined) data.name = name.trim();
-    if (goal !== undefined) data.goal = goal;
+    if (name !== undefined) data.name = String(name).trim().slice(0, 100);
+    if (goal !== undefined) data.goal = String(goal).slice(0, 100);
+    if (lookingFor !== undefined) data.lookingFor = String(lookingFor).trim().slice(0, 1000);
     if (weightKg !== undefined) data.weightKg = parseFloat(weightKg) || 70;
     if (heightCm !== undefined) data.heightCm = parseInt(heightCm) || 170;
 
     const updated = await prisma.user.update({ where: { id: req.user.id }, data });
-    res.json({ id: updated.id, name: updated.name, email: updated.email, role: updated.role, avatar: updated.avatar, goal: updated.goal, weightKg: updated.weightKg, heightCm: updated.heightCm, emailVerified: updated.emailVerified });
+    res.json({ id: updated.id, name: updated.name, email: updated.email, role: updated.role, avatar: updated.avatar, goal: updated.goal, weightKg: updated.weightKg, heightCm: updated.heightCm, emailVerified: updated.emailVerified, lookingFor: updated.lookingFor, termsAcceptedAt: updated.termsAcceptedAt });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// ─── TERMS & CONDITIONS ───────────────────────────────────────────────────────
+const TERMS_VERSION = '2026-10';
+app.get('/api/v1/terms/version', (req, res) => res.json({ version: TERMS_VERSION }));
+app.post('/api/v1/user/accept-terms', authMiddleware, async (req, res) => {
+  try {
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { termsAcceptedAt: new Date(), termsVersion: TERMS_VERSION }
+    });
+    console.log(`[TERMS] Accepted v${TERMS_VERSION}: ${updated.email}`);
+    res.json({ termsAcceptedAt: updated.termsAcceptedAt, termsVersion: updated.termsVersion });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// ─── BODY PHOTOS (private) ────────────────────────────────────────────────────
+const BODY_DIR = path.join(__dirname, 'uploads', 'body-private');
+if (!fs.existsSync(BODY_DIR)) fs.mkdirSync(BODY_DIR, { recursive: true });
+const bodyUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, BODY_DIR),
+    filename: (req, file, cb) => {
+      const ext = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }[file.mimetype] || '.jpg';
+      cb(null, `${req.user.id}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`);
+    }
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!/^image\/(jpeg|jpg|png|webp)$/.test(file.mimetype)) return cb(new Error('Solo imágenes (jpg, png, webp)'));
+    cb(null, true);
+  }
+});
+
+app.get('/api/v1/user/body-photos', authMiddleware, async (req, res) => {
+  try {
+    const photos = await prisma.bodyPhoto.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, select: { id: true, label: true, createdAt: true } });
+    res.json(photos);
+  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+app.post('/api/v1/user/body-photos', authMiddleware, (req, res, next) => {
+  bodyUpload.single('photo')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Error al subir la foto' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
+    const count = await prisma.bodyPhoto.count({ where: { userId: req.user.id } });
+    if (count >= 30) { fs.unlink(req.file.path, () => {}); return res.status(400).json({ error: 'Límite de 30 fotos alcanzado. Elimina alguna para subir otra.' }); }
+    const label = String(req.body.label || '').trim().slice(0, 40);
+    const photo = await prisma.bodyPhoto.create({ data: { userId: req.user.id, filename: req.file.filename, label } });
+    res.json({ id: photo.id, label: photo.label, createdAt: photo.createdAt });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+app.delete('/api/v1/user/body-photos/:id', authMiddleware, async (req, res) => {
+  try {
+    const photo = await prisma.bodyPhoto.findFirst({ where: { id: req.params.id, userId: req.user.id } });
+    if (!photo) return res.status(404).json({ error: 'Foto no encontrada' });
+    await prisma.bodyPhoto.delete({ where: { id: photo.id } });
+    fs.unlink(path.join(BODY_DIR, path.basename(photo.filename)), () => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// Authenticated file access: owner, their coach, or admin
+app.get('/api/v1/body-photos/:id/file', authMiddleware, async (req, res) => {
+  try {
+    const photo = await prisma.bodyPhoto.findUnique({ where: { id: req.params.id }, include: { user: { select: { coachId: true } } } });
+    if (!photo) return res.status(404).json({ error: 'No encontrada' });
+    const { id: uid, role } = req.user;
+    const allowed = photo.userId === uid || role === 'ADMIN' || (role === 'COACH' && photo.user.coachId === uid);
+    if (!allowed) return res.status(403).json({ error: 'Sin acceso' });
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.sendFile(path.join(BODY_DIR, path.basename(photo.filename)));
+  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// Coach/Admin: list an athlete's body photos
+app.get('/api/v1/coach/athletes/:id/body-photos', authMiddleware, async (req, res) => {
+  try {
+    const { role, id: coachId } = req.user;
+    if (role !== 'COACH' && role !== 'ADMIN') return res.status(403).json({ error: 'Solo coaches' });
+    const athlete = await prisma.user.findFirst({ where: role === 'ADMIN' ? { id: req.params.id } : { id: req.params.id, coachId }, select: { id: true } });
+    if (!athlete) return res.status(404).json({ error: 'Atleta no encontrado' });
+    const photos = await prisma.bodyPhoto.findMany({ where: { userId: athlete.id }, orderBy: { createdAt: 'desc' }, select: { id: true, label: true, createdAt: true } });
+    res.json(photos);
+  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 
 app.post('/api/v1/user/avatar', authMiddleware, avatarUpload.single('avatar'), async (req, res) => {
@@ -442,7 +521,7 @@ app.get('/api/v1/coach/athletes/:id', authMiddleware, async (req, res) => {
     const where = role === 'ADMIN' ? { id: athleteId, role: 'CLIENT' } : { id: athleteId, coachId, role: 'CLIENT' };
     const athlete = await prisma.user.findFirst({
       where,
-      select: { id: true, email: true, name: true, avatar: true, goal: true, weightKg: true, heightCm: true, emailVerified: true, createdAt: true }
+      select: { id: true, email: true, name: true, avatar: true, goal: true, weightKg: true, heightCm: true, emailVerified: true, createdAt: true, lookingFor: true }
     });
     if (!athlete) return res.status(404).json({ error: 'Atleta no encontrado' });
 
@@ -583,8 +662,9 @@ app.post('/api/v1/coach/invite', authMiddleware, async (req, res) => {
 // Public: Complete invite registration (athlete fills profile)
 app.post('/api/v1/auth/complete-invite', async (req, res) => {
   try {
-    const { token, name, password, goal, weightKg, heightCm } = req.body;
+    const { token, name, password, goal, weightKg, heightCm, acceptTerms, lookingFor } = req.body;
     if (!token || !name || !password) return res.status(400).json({ error: 'Token, nombre y contraseña requeridos' });
+    if (acceptTerms !== true) return res.status(400).json({ error: 'Debes aceptar los Términos y Condiciones' });
     if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
 
     const user = await prisma.user.findFirst({
@@ -602,6 +682,8 @@ app.post('/api/v1/auth/complete-invite', async (req, res) => {
         weightKg: parseFloat(weightKg) || 70,
         heightCm: parseInt(heightCm) || 170,
         emailVerified: true,
+        lookingFor: lookingFor ? String(lookingFor).trim().slice(0, 1000) : '',
+        termsAcceptedAt: new Date(), termsVersion: TERMS_VERSION,
         inviteToken: null, inviteExpires: null
       }
     });

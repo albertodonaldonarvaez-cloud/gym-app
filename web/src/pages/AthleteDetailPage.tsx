@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import BodyPhotosManager from '../components/BodyPhotosManager';
 import {
   ChevronLeft, Dumbbell, Target, TrendingUp, Calendar, Clock,
   Activity, Loader2, AlertCircle, Weight, BarChart3, Flame
@@ -16,6 +17,7 @@ interface Athlete {
   weightKg: number;
   heightCm: number;
   emailVerified: boolean;
+  lookingFor?: string;
   createdAt: string;
 }
 
@@ -124,7 +126,7 @@ export default function AthleteDetailPage() {
         {/* Profile Card */}
         <div className="card bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center md:items-start gap-6">
           <div className="h-24 w-24 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-3xl font-bold shrink-0">
-            {athlete.avatar ? <img src={athlete.avatar} alt={athlete.name} className="h-full w-full rounded-full object-cover" /> : initials}
+            {athlete.avatar ? <img src={`${import.meta.env.VITE_API_URL ?? ''}${athlete.avatar}`} alt={athlete.name} className="h-full w-full rounded-full object-cover" /> : initials}
           </div>
           <div className="flex-1 text-center md:text-left space-y-2">
             <h1 className="text-2xl font-bold text-gray-900">{athlete.name}</h1>
@@ -139,8 +141,30 @@ export default function AthleteDetailPage() {
           </div>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* What the athlete is looking for */}
+        <div className="card bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <Target className="h-5 w-5 text-gray-500" />
+            ¿Qué busca lograr?
+          </h2>
+          {athlete.lookingFor ? (
+            <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{athlete.lookingFor}</p>
+          ) : (
+            <p className="text-gray-400 text-sm">El atleta aún no ha escrito qué busca lograr.</p>
+          )}
+        </div>
+
+        {/* Progress photos (private) */}
+        <div className="card bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
+            <Activity className="h-5 w-5 text-gray-500" />
+            Fotos de progreso
+          </h2>
+          <p className="text-xs text-gray-400 mb-4">Información privada del atleta. Úsala solo para su seguimiento.</p>
+          <BodyPhotosManager mode="coach" athleteId={id} />
+        </div>
+
+        {/* Stats Row */}        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="stat-card bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
             <div className="p-3 bg-blue-50 rounded-lg text-blue-600">
               <Dumbbell className="h-6 w-6" />

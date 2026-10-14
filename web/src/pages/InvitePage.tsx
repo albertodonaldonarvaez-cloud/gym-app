@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { User, Lock, Target, Weight, Ruler, Loader2, Check, AlertCircle, Dumbbell } from 'lucide-react';
 
 const BASE = import.meta.env.VITE_API_URL ?? '';
@@ -14,8 +14,10 @@ export default function InvitePage() {
     confirmPassword: '',
     goal: 'Acondicionamiento Físico',
     weightKg: '',
-    heightCm: ''
+    heightCm: '',
+    lookingFor: ''
   });
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +33,7 @@ export default function InvitePage() {
     'Rehabilitación'
   ];
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
@@ -46,6 +48,11 @@ export default function InvitePage() {
 
     if (formData.password !== formData.confirmPassword) {
       setError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    if (!acceptTerms) {
+      setError('Debes aceptar los Términos y Condiciones para continuar.');
       return;
     }
 
@@ -66,13 +73,15 @@ export default function InvitePage() {
           password: formData.password,
           goal: formData.goal,
           weightKg: Number(formData.weightKg),
-          heightCm: Number(formData.heightCm)
+          heightCm: Number(formData.heightCm),
+          lookingFor: formData.lookingFor,
+          acceptTerms: true
         })
       });
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        throw new Error(data?.message || 'Error al completar el registro. El enlace puede haber expirado.');
+        throw new Error(data?.error || data?.message || 'Error al completar el registro. El enlace puede haber expirado.');
       }
 
       const data = await response.json();
@@ -196,8 +205,21 @@ export default function InvitePage() {
           </div>
 
           <div>
-            <label className="label block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
-            <div className="relative">
+            <label className="label block text-sm font-medium text-gray-700 mb-1">¿Qué buscas lograr? <span className="text-gray-400 font-normal">(opcional)</span></label>
+            <textarea
+              name="lookingFor"
+              value={formData.lookingFor}
+              onChange={handleChange}
+              rows={3}
+              maxLength={1000}
+              className="input w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#007AFF] focus:border-transparent transition-all outline-none resize-none"
+              placeholder="Ej: Quiero bajar 8 kg, ganar fuerza en piernas y entrenar 4 días a la semana"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">Tu coach lo usará para personalizar tu plan.</p>
+          </div>
+
+          <div>
+            <label className="label block text-sm font-medium text-gray-700 mb-1">Contraseña</label>            <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 required
@@ -227,10 +249,21 @@ export default function InvitePage() {
             </div>
           </div>
 
+          <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-gray-50 border border-gray-100">
+            <input
+              type="checkbox"
+              checked={acceptTerms}
+              onChange={e => setAcceptTerms(e.target.checked)}
+              className="mt-0.5 w-5 h-5 rounded accent-[#007AFF] shrink-0"
+            />
+            <span className="text-xs text-gray-600 leading-relaxed">
+              He leído y acepto los <Link to="/terms" target="_blank" className="text-[#007AFF] underline font-medium">Términos y Condiciones</Link> y el Aviso de Privacidad, incluido el tratamiento de mis datos de condición física.
+            </span>
+          </label>
+
           <button
             type="submit"
-            disabled={loading}
-            className="btn-primary w-full bg-[#007AFF] hover:bg-[#0056b3] text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+            disabled={loading || !acceptTerms}            className="btn-primary w-full bg-[#007AFF] hover:bg-[#0056b3] text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed mt-2"
           >
             {loading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
