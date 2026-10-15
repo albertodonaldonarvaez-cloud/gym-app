@@ -188,3 +188,7 @@ input[type="number"]::-webkit-outer-spin-button {
 .animate-slide-in {
   animation: slide-in 0.25s ease-out;
 }
+/* 3D body editor sliders */
+.bm-range { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; border-radius: 9999px; outline: none; touch-action: pan-y; }
+.bm-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 9999px; background: #fff; border: 2px solid #007AFF; box-shadow: 0 2px 8px rgba(0,0,0,.22); cursor: pointer; }
+.bm-range::-moz-range-thumb { width: 24px; height: 24px; border-radius: 9999px; background: #fff; border: 2px solid #007AFF; box-shadow: 0 2px 8px rgba(0,0,0,.22); cursor: pointer; }

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import BodyPhotosManager from '../components/BodyPhotosManager';
+const CoachBodyView = lazy(() => import('../components/body3d/CoachBodyView'));
 import {
   ChevronLeft, Dumbbell, Target, TrendingUp, Calendar, Clock,
   Activity, Loader2, AlertCircle, Weight, BarChart3, Flame
@@ -158,10 +158,12 @@ export default function AthleteDetailPage() {
         <div className="card bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <h2 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
             <Activity className="h-5 w-5 text-gray-500" />
-            Fotos de progreso
+            Avatar 3D y evolución corporal
           </h2>
-          <p className="text-xs text-gray-400 mb-4">Información privada del atleta. Úsala solo para su seguimiento.</p>
-          <BodyPhotosManager mode="coach" athleteId={id} />
+          <p className="text-xs text-gray-400 mb-4">Así describe el atleta su cuerpo actual. Información privada: úsala solo para su seguimiento.</p>
+          <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>}>
+            <CoachBodyView athleteId={id as string} />
+          </Suspense>
         </div>
 
         {/* Stats Row */}        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

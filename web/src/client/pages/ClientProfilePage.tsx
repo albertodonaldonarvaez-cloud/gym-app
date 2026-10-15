@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Camera, Save, Loader2, LogOut, Plus, Minus, FileText, ChevronRight } from 'lucide-react'
-import BodyPhotosManager from '../../components/BodyPhotosManager'
+const BodyAvatarEditor = lazy(() => import('../../components/body3d/BodyAvatarEditor'))
 import { getToken, getUser, clearAuth } from '../clientApi'
 
 const BASE = (import.meta as any).env?.VITE_API_URL ?? ''
@@ -211,13 +211,12 @@ export default function ClientProfilePage() {
         <p className="text-[11px] text-gray-400 mt-1 text-right">{lookingFor.length}/1000</p>
       </div>
 
-      {/* Body photos */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Fotos de progreso</label>
-          <span className="text-[10px] font-semibold text-[#007AFF] bg-blue-50 px-2 py-0.5 rounded-full">Opcional · Privado</span>
-        </div>
-        <BodyPhotosManager mode="owner" />
+      {/* 3D body avatar (replaces photo upload) */}
+      <div>
+        <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 px-1">Mi cuerpo 3D</h2>
+        <Suspense fallback={<div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-[#007AFF] animate-spin" /></div>}>
+          <BodyAvatarEditor onSaved={p => setHeightCm(p.heightCm)} />
+        </Suspense>
       </div>
 
       {/* Save */}      <button

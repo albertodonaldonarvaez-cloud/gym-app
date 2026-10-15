@@ -479,7 +479,7 @@ app.put('/api/v1/user/profile', authMiddleware, async (req, res) => {
 });
 
 // ─── TERMS & CONDITIONS ───────────────────────────────────────────────────────
-const TERMS_VERSION = '2026-10';
+const TERMS_VERSION = '2026-11';
 app.get('/api/v1/terms/version', (req, res) => res.json({ version: TERMS_VERSION }));
 app.post('/api/v1/user/accept-terms', authMiddleware, async (req, res) => {
   try {
@@ -492,79 +492,67 @@ app.post('/api/v1/user/accept-terms', authMiddleware, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
-// ─── BODY PHOTOS (private) ────────────────────────────────────────────────────
-const BODY_DIR = path.join(__dirname, 'uploads', 'body-private');
-if (!fs.existsSync(BODY_DIR)) fs.mkdirSync(BODY_DIR, { recursive: true });
-const bodyUpload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, BODY_DIR),
-    filename: (req, file, cb) => {
-      const ext = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }[file.mimetype] || '.jpg';
-      cb(null, `${req.user.id}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`);
-    }
-  }),
-  limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (!/^image\/(jpeg|jpg|png|webp)$/.test(file.mimetype)) return cb(new Error('Solo imágenes (jpg, png, webp)'));
-    cb(null, true);
-  }
-});
+// ─── BODY SCANS (3D avatar states) ────────────────────────────────────────────
+const clampInt = (v, min, max, def) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+};
+function sanitizeBodyParams(p = {}) {
+  return {
+    gender: p.gender === 'female' ? 'female' : 'male',
+    skin: clampInt(p.skin, 0, 5, 1),
+    heightCm: clampInt(p.heightCm, 130, 220, 170),
+    fat: clampInt(p.fat, 0, 100, 35),
+    muscle: clampInt(p.muscle, 0, 100, 30),
+    shoulders: clampInt(p.shoulders, 0, 100, 50),
+    chest: clampInt(p.chest, 0, 100, 50),
+    waist: clampInt(p.waist, 0, 100, 50),
+    hips: clampInt(p.hips, 0, 100, 50),
+    arms: clampInt(p.arms, 0, 100, 50),
+    legs: clampInt(p.legs, 0, 100, 50),
+  };
+}
+const parseScan = (s) => {
+  let params; try { params = sanitizeBodyParams(JSON.parse(s.data)); } catch { params = sanitizeBodyParams({}); }
+  return { id: s.id, label: s.label, createdAt: s.createdAt, params };
+};
 
-app.get('/api/v1/user/body-photos', authMiddleware, async (req, res) => {
+app.get('/api/v1/user/body-scans', authMiddleware, async (req, res) => {
   try {
-    const photos = await prisma.bodyPhoto.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, select: { id: true, label: true, createdAt: true } });
-    res.json(photos);
+    const scans = await prisma.bodyScan.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'asc' }, take: 200 });
+    res.json(scans.map(parseScan));
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 
-app.post('/api/v1/user/body-photos', authMiddleware, (req, res, next) => {
-  bodyUpload.single('photo')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message || 'Error al subir la foto' });
-    next();
-  });
-}, async (req, res) => {
+app.post('/api/v1/user/body-scans', authMiddleware, async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
-    const count = await prisma.bodyPhoto.count({ where: { userId: req.user.id } });
-    if (count >= 30) { fs.unlink(req.file.path, () => {}); return res.status(400).json({ error: 'Límite de 30 fotos alcanzado. Elimina alguna para subir otra.' }); }
-    const label = String(req.body.label || '').trim().slice(0, 40);
-    const photo = await prisma.bodyPhoto.create({ data: { userId: req.user.id, filename: req.file.filename, label } });
-    res.json({ id: photo.id, label: photo.label, createdAt: photo.createdAt });
+    const count = await prisma.bodyScan.count({ where: { userId: req.user.id } });
+    if (count >= 200) return res.status(400).json({ error: 'Límite de registros alcanzado. Elimina alguno antiguo.' });
+    const params = sanitizeBodyParams(req.body.params);
+    const label = String(req.body.label || '').trim().slice(0, 60);
+    const scan = await prisma.bodyScan.create({ data: { userId: req.user.id, data: JSON.stringify(params), label } });
+    // Keep the profile height in sync with the avatar
+    await prisma.user.update({ where: { id: req.user.id }, data: { heightCm: params.heightCm } });
+    res.json(parseScan(scan));
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
-app.delete('/api/v1/user/body-photos/:id', authMiddleware, async (req, res) => {
+app.delete('/api/v1/user/body-scans/:id', authMiddleware, async (req, res) => {
   try {
-    const photo = await prisma.bodyPhoto.findFirst({ where: { id: req.params.id, userId: req.user.id } });
-    if (!photo) return res.status(404).json({ error: 'Foto no encontrada' });
-    await prisma.bodyPhoto.delete({ where: { id: photo.id } });
-    fs.unlink(path.join(BODY_DIR, path.basename(photo.filename)), () => {});
+    const r = await prisma.bodyScan.deleteMany({ where: { id: req.params.id, userId: req.user.id } });
+    if (!r.count) return res.status(404).json({ error: 'Registro no encontrado' });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 
-// Authenticated file access: owner, their coach, or admin
-app.get('/api/v1/body-photos/:id/file', authMiddleware, async (req, res) => {
-  try {
-    const photo = await prisma.bodyPhoto.findUnique({ where: { id: req.params.id }, include: { user: { select: { coachId: true } } } });
-    if (!photo) return res.status(404).json({ error: 'No encontrada' });
-    const { id: uid, role } = req.user;
-    const allowed = photo.userId === uid || role === 'ADMIN' || (role === 'COACH' && photo.user.coachId === uid);
-    if (!allowed) return res.status(403).json({ error: 'Sin acceso' });
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.sendFile(path.join(BODY_DIR, path.basename(photo.filename)));
-  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
-});
-
-// Coach/Admin: list an athlete's body photos
-app.get('/api/v1/coach/athletes/:id/body-photos', authMiddleware, async (req, res) => {
+app.get('/api/v1/coach/athletes/:id/body-scans', authMiddleware, async (req, res) => {
   try {
     const { role, id: coachId } = req.user;
     if (role !== 'COACH' && role !== 'ADMIN') return res.status(403).json({ error: 'Solo coaches' });
     const athlete = await prisma.user.findFirst({ where: role === 'ADMIN' ? { id: req.params.id } : { id: req.params.id, coachId }, select: { id: true } });
     if (!athlete) return res.status(404).json({ error: 'Atleta no encontrado' });
-    const photos = await prisma.bodyPhoto.findMany({ where: { userId: athlete.id }, orderBy: { createdAt: 'desc' }, select: { id: true, label: true, createdAt: true } });
-    res.json(photos);
+    const scans = await prisma.bodyScan.findMany({ where: { userId: athlete.id }, orderBy: { createdAt: 'asc' }, take: 200 });
+    res.json(scans.map(parseScan));
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 

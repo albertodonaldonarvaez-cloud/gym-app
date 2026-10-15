@@ -36,6 +36,7 @@ model User {
   resetToken    String?  @map("reset_token")
   resetExpires  DateTime? @map("reset_expires")
   bodyPhotos    BodyPhoto[]
+  bodyScans     BodyScan[]
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -189,4 +190,18 @@ model BodyPhoto {
 
   @@index([userId])
   @@map("body_photos")
+}
+
+// Estado corporal 3D guardado por el atleta (reemplaza la subida de fotos)
+model BodyScan {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  data      String
+  label     String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("body_scans")
 }

@@ -69,7 +69,7 @@ export default function TermsGate() {
             <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
               className="mt-0.5 w-5 h-5 rounded accent-[#007AFF] shrink-0" />
             <span className="text-[13px] text-gray-700 leading-snug">
-              He leído y acepto los Términos y Condiciones y el Aviso de Privacidad, incluido el tratamiento de mis datos de condición física y, si decido subirlas, mis fotografías corporales.{' '}
+              He leído y acepto los Términos y Condiciones y el Aviso de Privacidad, incluido el tratamiento de mis datos de condición física y mi avatar corporal 3D.{' '}
               <Link to="/terms" target="_blank" className="text-[#007AFF] underline">Abrir en otra pestaña</Link>
             </span>
           </label>

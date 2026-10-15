@@ -1,6 +1,6 @@
 // Fuente única del texto legal. Debe coincidir con TERMS_VERSION del servidor.
-export const TERMS_VERSION = '2026-10'
-export const TERMS_UPDATED = '14 de octubre de 2026'
+export const TERMS_VERSION = '2026-11'
+export const TERMS_UPDATED = '15 de octubre de 2026'
 export const CONTACT_EMAIL = 'contacto@tecti.com.mx'
 
 export interface TermsSection {
@@ -24,7 +24,7 @@ export const TERMS_SECTIONS: TermsSection[] = [
     id: 'servicio',
     title: '2. Descripción del servicio',
     paragraphs: [
-      'GymAura permite a coaches crear y asignar rutinas, y a atletas registrar sus entrenamientos, peso, medidas y fotografías de progreso para dar seguimiento a su avance.',
+      'GymAura permite a coaches crear y asignar rutinas, y a atletas registrar sus entrenamientos, peso, medidas y un avatar corporal 3D de progreso para dar seguimiento a su avance.',
     ],
     bullets: [
       'Los coaches pueden ver el progreso de los atletas que tienen asignados.',
@@ -60,21 +60,21 @@ export const TERMS_SECTIONS: TermsSection[] = [
       'Identificación y contacto: nombre y correo electrónico.',
       'Datos de condición física: peso, estatura, objetivo, qué buscas lograr y tu historial de entrenamientos (series, repeticiones, pesos, duración).',
       'Fotografía de perfil (opcional).',
-      'Fotografías corporales de progreso (opcional).',
+      'Avatar corporal 3D: género, altura y proporciones (grasa, músculo, etc.) que tú configuras, con la fecha de cada registro.',
       'Datos técnicos mínimos: fecha y hora de acceso, tipo de dispositivo y dirección IP, con fines de seguridad.',
     ],
   },
   {
     id: 'sensibles',
-    title: '6. Datos sensibles y fotografías corporales',
+    title: '6. Datos sensibles y avatar corporal 3D',
     highlight:
-      'Tus datos de condición física y tus fotografías corporales se consideran datos personales sensibles. Solo se recaban con tu consentimiento expreso, el cual otorgas al aceptar este documento y al subir voluntariamente cada fotografía.',
+      'Tus datos de condición física y tu avatar corporal 3D se consideran datos personales sensibles. Solo se recaban con tu consentimiento expreso, el cual otorgas al aceptar este documento y al guardar voluntariamente cada registro.',
     bullets: [
-      'Subir fotografías corporales es totalmente voluntario; puedes usar la plataforma sin hacerlo.',
-      'Tus fotografías corporales NO son públicas ni se muestran a otros atletas.',
-      'Solo pueden verlas tú, tu coach asignado y los administradores del sistema cuando sea necesario para soporte o seguridad.',
-      'Puedes eliminar cualquiera de tus fotografías en cualquier momento desde tu perfil; al eliminarlas se borran de nuestros servidores.',
-      'No las usamos con fines publicitarios ni las compartimos con terceros.',
+      'Crear tu avatar corporal es totalmente voluntario y no requiere subir fotografías; puedes usar la plataforma sin hacerlo.',
+      'Tu avatar NO es público ni se muestra a otros atletas.',
+      'Solo pueden verlo tú, tu coach asignado y los administradores del sistema cuando sea necesario para soporte o seguridad.',
+      'Puedes eliminar cualquiera de tus registros en cualquier momento desde tu perfil; al eliminarlos se borran de nuestros servidores.',
+      'No lo usamos con fines publicitarios ni lo compartimos con terceros.',
     ],
   },
   {
@@ -101,7 +101,7 @@ export const TERMS_SECTIONS: TermsSection[] = [
     title: '9. Tus derechos (ARCO) y revocación',
     paragraphs: [
       'Conforme a la Ley Federal de Protección de Datos Personales en Posesión de los Particulares, tienes derecho a Acceder, Rectificar y Cancelar tus datos, así como a Oponerte a su tratamiento, y a revocar tu consentimiento.',
-      'Puedes editar tus datos y eliminar tus fotografías directamente desde tu perfil. Para solicitar la eliminación total de tu cuenta o ejercer cualquier otro derecho, escríbenos a ' +
+      'Puedes editar tus datos y eliminar tus registros corporales directamente desde tu perfil. Para solicitar la eliminación total de tu cuenta o ejercer cualquier otro derecho, escríbenos a ' +
         CONTACT_EMAIL +
         '. Atenderemos tu solicitud en un plazo máximo de 20 días hábiles.',
     ],
@@ -110,7 +110,7 @@ export const TERMS_SECTIONS: TermsSection[] = [
     id: 'conservacion',
     title: '10. Conservación y seguridad',
     paragraphs: [
-      'Conservamos tus datos mientras tu cuenta esté activa y durante el tiempo necesario para cumplir obligaciones legales. Aplicamos medidas técnicas y administrativas razonables: contraseñas cifradas, conexiones seguras (HTTPS), control de acceso por roles y almacenamiento privado de fotografías corporales.',
+      'Conservamos tus datos mientras tu cuenta esté activa y durante el tiempo necesario para cumplir obligaciones legales. Aplicamos medidas técnicas y administrativas razonables: contraseñas cifradas, conexiones seguras (HTTPS), control de acceso por roles y acceso restringido a tus datos corporales.',
       'Ningún sistema es 100% infalible; en caso de una vulneración que afecte significativamente tus derechos te lo notificaremos.',
     ],
   },
@@ -119,7 +119,7 @@ export const TERMS_SECTIONS: TermsSection[] = [
     title: '11. Uso aceptable',
     bullets: [
       'No subas contenido ilegal, ofensivo, que viole derechos de terceros o que muestre a otra persona sin su consentimiento.',
-      'Las fotografías corporales deben ser tuyas y mostrar únicamente lo que decidas compartir con tu coach; recomendamos ropa deportiva.',
+      'La información de tu avatar debe corresponder a ti; no representes a otra persona.',
       'No intentes acceder a cuentas ajenas, vulnerar la seguridad ni hacer un uso automatizado abusivo del sistema.',
       'Podemos suspender o cancelar cuentas que incumplan estas reglas.',
     ],
