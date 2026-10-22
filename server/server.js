@@ -510,6 +510,16 @@ function sanitizeBodyParams(p = {}) {
     hips: clampInt(p.hips, 0, 100, 50),
     arms: clampInt(p.arms, 0, 100, 50),
     legs: clampInt(p.legs, 0, 100, 50),
+    armLen: clampInt(p.armLen, 0, 100, 50),
+    legLen: clampInt(p.legLen, 0, 100, 50),
+    zChest: clampInt(p.zChest, 0, 100, 50),
+    zBack: clampInt(p.zBack, 0, 100, 50),
+    zDelts: clampInt(p.zDelts, 0, 100, 50),
+    zArms: clampInt(p.zArms, 0, 100, 50),
+    zAbs: clampInt(p.zAbs, 0, 100, 50),
+    zGlutes: clampInt(p.zGlutes, 0, 100, 50),
+    zQuads: clampInt(p.zQuads, 0, 100, 50),
+    zCalves: clampInt(p.zCalves, 0, 100, 50),
   };
 }
 const parseScan = (s) => {
@@ -634,6 +644,69 @@ app.get('/api/v1/coach/athletes/:id', authMiddleware, async (req, res) => {
       exerciseProgress,
       weeklyFrequency
     });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// ─── COACH: FULL ATHLETE HISTORY (sessions with every set + per-exercise records) ──
+app.get('/api/v1/coach/athletes/:id/history', authMiddleware, async (req, res) => {
+  try {
+    const { role, id: coachId } = req.user;
+    if (role !== 'COACH' && role !== 'ADMIN') return res.status(403).json({ error: 'Solo coaches' });
+    const where = role === 'ADMIN' ? { id: req.params.id, role: 'CLIENT' } : { id: req.params.id, coachId, role: 'CLIENT' };
+    const athlete = await prisma.user.findFirst({ where, select: { id: true } });
+    if (!athlete) return res.status(404).json({ error: 'Atleta no encontrado' });
+
+    const sets = await prisma.setLog.findMany({
+      where: { athleteId: athlete.id },
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+      select: { exerciseId: true, exerciseName: true, weightKg: true, reps: true, rpe: true, setNumber: true,
+                sessionId: true, dayName: true, workoutLogId: true, createdAt: true }
+    });
+    const logIds = [...new Set(sets.map(s => s.workoutLogId))];
+    const logs = await prisma.workoutLog.findMany({ where: { id: { in: logIds } }, select: { id: true, dayName: true, durationSeconds: true } });
+    const logMap = Object.fromEntries(logs.map(l => [l.id, l]));
+
+    const sessMap = new Map();
+    for (const s of sets) {
+      const key = s.sessionId || s.workoutLogId;
+      let sess = sessMap.get(key);
+      if (!sess) {
+        const log = logMap[s.workoutLogId] || {};
+        sess = { id: key, date: s.createdAt, dayName: log.dayName || s.dayName || '', durationSeconds: log.durationSeconds || null, exMap: new Map() };
+        sessMap.set(key, sess);
+      }
+      if (s.createdAt < sess.date) sess.date = s.createdAt;
+      if (!sess.dayName && s.dayName) sess.dayName = s.dayName;
+      const exKey = s.exerciseId;
+      if (!sess.exMap.has(exKey)) sess.exMap.set(exKey, { exerciseId: s.exerciseId, name: s.exerciseName || 'Ejercicio', sets: [] });
+      sess.exMap.get(exKey).sets.push({ n: s.setNumber, weightKg: s.weightKg, reps: s.reps, rpe: s.rpe || null });
+    }
+
+    const records = {};
+    const sessions = [...sessMap.values()].map(sess => {
+      const exercises = [...sess.exMap.values()].map(ex => {
+        ex.sets.sort((a, b) => a.n - b.n);
+        const volume = ex.sets.reduce((a, x) => a + x.weightKg * x.reps, 0);
+        const top = Math.max(...ex.sets.map(x => x.weightKg));
+        const best1RM = Math.max(...ex.sets.map(x => x.reps > 0 ? x.weightKg * (1 + x.reps / 30) : 0));
+        const r = records[ex.exerciseId] || (records[ex.exerciseId] = { exerciseId: ex.exerciseId, name: ex.name, bestWeight: 0, best1RM: 0, sessions: 0, lastDate: null, series: [] });
+        r.bestWeight = Math.max(r.bestWeight, top);
+        r.best1RM = Math.max(r.best1RM, Math.round(best1RM * 10) / 10);
+        r.sessions++;
+        if (!r.lastDate || sess.date > r.lastDate) r.lastDate = sess.date;
+        r.series.push({ date: sess.date, topWeight: top, volume: Math.round(volume), sets: ex.sets.length });
+        return { exerciseId: ex.exerciseId, name: ex.name, sets: ex.sets, volume: Math.round(volume), topWeight: top };
+      });
+      return {
+        id: sess.id, date: sess.date, dayName: sess.dayName, durationSeconds: sess.durationSeconds,
+        totalSets: exercises.reduce((a, e) => a + e.sets.length, 0),
+        volume: exercises.reduce((a, e) => a + e.volume, 0), exercises
+      };
+    }).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    for (const r of Object.values(records)) r.series.sort((a, b) => new Date(a.date) - new Date(b.date));
+    res.json({ sessions, records: Object.values(records).sort((a, b) => new Date(b.lastDate) - new Date(a.lastDate)) });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Error del servidor' }); }
 });
 
@@ -881,6 +954,9 @@ app.get('/api/exercises', async (req, res) => {
         defaultReps:    e.defaultReps,
         mediaUrl:       e.mediaUrl,
         imageUrls:      buildImageUrls(e),
+        videoUrl:       e.videoUrl || null,
+        isCustom:       e.isCustom,
+        coachId:        e.coachId || null,
         icon:           'dumbbell',
       })),
       total,
@@ -891,20 +967,78 @@ app.get('/api/exercises', async (req, res) => {
 });
 
 
+const VIDEO_PAGE_RE = /(tiktok\.com|youtube\.com|youtu\.be)/i;
+function exerciseFields(body) {
+  const f = {};
+  if (body.name !== undefined) f.name = String(body.name).trim().slice(0, 120);
+  if (body.targetMuscle !== undefined || body.muscleGroup !== undefined) f.muscleGroup = String(body.targetMuscle || body.muscleGroup || 'General').slice(0, 60);
+  if (body.category !== undefined) f.category = String(body.category || 'General').slice(0, 60);
+  if (body.equipment !== undefined) f.equipment = String(body.equipment || 'Libre').slice(0, 60);
+  if (body.instructions !== undefined) f.instructions = String(body.instructions || '').slice(0, 5000);
+  if (body.defaultSets !== undefined) f.defaultSets = Math.min(20, Math.max(1, parseInt(body.defaultSets) || 4));
+  if (body.defaultReps !== undefined) f.defaultReps = Math.min(100, Math.max(1, parseInt(body.defaultReps) || 12));
+  const url = String(body.mediaUrl ?? body.videoUrl ?? '').trim();
+  if (body.mediaUrl !== undefined || body.videoUrl !== undefined) {
+    if (!url) { f.mediaUrl = null; f.videoUrl = null; }
+    else if (!/^https?:\/\//i.test(url)) { /* ignore invalid */ }
+    else if (VIDEO_PAGE_RE.test(url)) f.videoUrl = url.slice(0, 500);
+    else f.mediaUrl = url.slice(0, 500);
+  }
+  return f;
+}
+// Coaches can modify only their own custom exercises; admins can modify any
+async function loadEditableExercise(req, res) {
+  const ex = await prisma.exercise.findUnique({ where: { id: req.params.id } });
+  if (!ex) { res.status(404).json({ error: 'Ejercicio no encontrado' }); return null; }
+  if (req.user.role !== 'ADMIN' && !(ex.isCustom && ex.coachId === req.user.id)) {
+    res.status(403).json({ error: 'Solo puedes modificar los ejercicios que tú creaste' }); return null;
+  }
+  return ex;
+}
+
 app.post('/api/exercises', authMiddleware, coachOnly, async (req, res) => {
   try {
+    const f = exerciseFields(req.body);
+    if (!f.name) return res.status(400).json({ error: 'El nombre es requerido' });
     const ex = await prisma.exercise.create({
-      data: {
-        name: req.body.name,
-        muscleGroup: req.body.targetMuscle || req.body.muscleGroup || 'General',
-        category: req.body.category || 'General',
-        equipment: req.body.equipment || 'Libre',
-        instructions: req.body.instructions || '',
-        defaultSets: parseInt(req.body.defaultSets) || 4,
-        defaultReps: parseInt(req.body.defaultReps) || 12
-      }
+      data: { muscleGroup: 'General', category: 'General', equipment: 'Libre', ...f, isCustom: true, coachId: req.user.id }
     });
     res.status(201).json({ ...ex, targetMuscle: ex.muscleGroup, icon: 'dumbbell' });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.put('/api/exercises/:id', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    if (!(await loadEditableExercise(req, res))) return;
+    const f = exerciseFields(req.body);
+    if (f.name === '') return res.status(400).json({ error: 'El nombre es requerido' });
+    const ex = await prisma.exercise.update({ where: { id: req.params.id }, data: f });
+    res.json({ ...ex, targetMuscle: ex.muscleGroup, icon: 'dumbbell' });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Delete: blocked if the exercise has workout history; if it is used in routines,
+// requires ?force=1 and then removes it from those routines.
+app.delete('/api/exercises/:id', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const ex = await loadEditableExercise(req, res);
+    if (!ex) return;
+    const logs = await prisma.setLog.count({ where: { exerciseId: ex.id } });
+    if (logs > 0) return res.status(409).json({ error: `No se puede eliminar: hay ${logs} series registradas con este ejercicio (historial de atletas).`, reason: 'history' });
+    const plans = await prisma.routinePlan.findMany({ select: { id: true, schedule: true } });
+    const using = plans.filter(p => JSON.stringify(p.schedule || {}).includes(ex.id));
+    if (using.length && req.query.force !== '1') {
+      return res.status(409).json({ error: `Este ejercicio está en ${using.length} rutina(s). Si lo eliminas se quitará de ellas.`, reason: 'in_routines', routines: using.length });
+    }
+    for (const p of using) {
+      const sched = JSON.parse(JSON.stringify(p.schedule));
+      for (const day of Object.values(sched)) {
+        if (day && Array.isArray(day.exercises)) day.exercises = day.exercises.filter(e => e.exerciseId !== ex.id);
+      }
+      await prisma.routinePlan.update({ where: { id: p.id }, data: { schedule: sched } });
+    }
+    await prisma.exercise.delete({ where: { id: ex.id } });
+    res.json({ ok: true, removedFromRoutines: using.length });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -1106,13 +1240,35 @@ app.post('/api/v1/workouts/sync', authMiddleware, async (req, res) => {
   try {
     const athleteId = req.user.id;
     const { sets } = req.body;
-    if (!Array.isArray(sets) || sets.length === 0) return res.json({ synced: 0, failed: 0 });
+    const applySessionMeta = async () => {
+      const meta = req.body.session;
+      if (meta && meta.sessionId) {
+        const dur = Math.max(0, Math.min(86400, parseInt(meta.durationSeconds) || 0));
+        await prisma.workoutLog.updateMany({
+          where: { athleteId, sessionId: String(meta.sessionId) },
+          data: { durationSeconds: dur || null, finishedAt: new Date(), ...(meta.dayName ? { dayName: String(meta.dayName).slice(0, 30) } : {}) }
+        });
+      }
+    };
+    if (!Array.isArray(sets) || sets.length === 0) { await applySessionMeta(); return res.json({ synced: 0, failed: 0 }); }
     let synced = 0, failed = 0;
     const today = new Date(); today.setHours(0,0,0,0);
-    let wLog = await prisma.workoutLog.findFirst({ where: { athleteId, date: { gte: today } } });
-    if (!wLog) wLog = await prisma.workoutLog.create({ data: { athleteId } });
+    // One WorkoutLog per device session (so history is grouped by real workouts); fall back to per-day
+    const logCache = new Map();
+    const getLog = async (s) => {
+      const key = s.sessionId || '__day';
+      if (logCache.has(key)) return logCache.get(key);
+      let log = s.sessionId
+        ? await prisma.workoutLog.findFirst({ where: { athleteId, sessionId: s.sessionId } })
+        : await prisma.workoutLog.findFirst({ where: { athleteId, sessionId: null, date: { gte: today } } });
+      if (!log) log = await prisma.workoutLog.create({ data: { athleteId, sessionId: s.sessionId || null, dayName: String(s.dayName || '').slice(0, 30), startedAt: new Date(), source: 'web' } });
+      logCache.set(key, log);
+      return log;
+    };
+    let wLog = null;
     for (const s of sets) {
       try {
+        wLog = await getLog(s);
         await prisma.setLog.upsert({
           where: { clientLogId: s.clientLogId },
           update: {
@@ -1131,6 +1287,7 @@ app.post('/api/v1/workouts/sync', authMiddleware, async (req, res) => {
             rpe: s.rpe ?? 0,
             setNumber: s.setNumber || 1,
             sessionId: s.sessionId || null,
+            dayName: String(s.dayName || '').slice(0, 30),
             restSeconds: s.restSeconds ?? null,
             notes: s.notes || ''
           }
@@ -1141,7 +1298,8 @@ app.post('/api/v1/workouts/sync', authMiddleware, async (req, res) => {
         failed++;
       }
     }
-    res.json({ synced, failed, workoutLogId: wLog.id });
+    await applySessionMeta();
+    res.json({ synced, failed, workoutLogId: wLog?.id ?? null });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 

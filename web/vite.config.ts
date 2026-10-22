@@ -79,7 +79,9 @@ export default defineConfig({
       },
       workbox: {
         // Cache all static assets
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,bin}'],
+        // El modelo 3D (gymbody.bin, ~2 MB) debe estar disponible sin internet
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         // Clean old caches on update
         cleanupOutdatedCaches: true,
         skipWaiting: true,

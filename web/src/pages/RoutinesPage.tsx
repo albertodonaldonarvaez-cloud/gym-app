@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   getAthletes, getExercises, getRoutineForAthlete, saveRoutine
@@ -6,7 +6,8 @@ import {
 import type { Athlete, Exercise, RoutineDay, RoutineExercise } from '../api'
 import {
   ChevronDown, Search, Plus, X, Save, Loader2, Dumbbell,
-  ChevronUp, GripVertical, Info, SlidersHorizontal, Users, FileText, Trash2, Copy
+  ChevronUp, GripVertical, Info, SlidersHorizontal, Users, FileText, Trash2, Copy,
+  ArrowUp, ArrowDown, Minus, Undo2, AlertCircle, CopyPlus, Timer
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -256,102 +257,202 @@ function ExercisePicker({
 }
 
 // ── Exercise row in routine ────────────────────────────────────────────────────
+function Stepper({ label, value, min, max, step = 1, onChange, unit }: {
+  label: string; value: number; min: number; max: number; step?: number
+  onChange: (v: number) => void; unit?: string
+}) {
+  const clamp = (n: number) => Math.min(max, Math.max(min, n))
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{label}</p>
+      <div className="inline-flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <button type="button" aria-label={`Menos ${label}`} onClick={() => onChange(clamp(Math.round((value - step) * 10) / 10))}
+          className="w-10 h-10 flex items-center justify-center text-gray-600 active:bg-gray-100">
+          <Minus className="w-4 h-4" />
+        </button>
+        <div className="w-14 text-center">
+          <input type="number" inputMode="decimal" value={Number.isFinite(value) ? value : ''}
+            onChange={e => { const n = Number(e.target.value); if (!Number.isNaN(n)) onChange(clamp(n)) }}
+            className="w-full h-10 text-center text-sm font-bold text-gray-900 bg-transparent outline-none" />
+        </div>
+        <button type="button" aria-label={`Más ${label}`} onClick={() => onChange(clamp(Math.round((value + step) * 10) / 10))}
+          className="w-10 h-10 flex items-center justify-center text-gray-600 active:bg-gray-100">
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
+      {unit && <span className="text-[10px] text-gray-400 ml-1">{unit}</span>}
+    </div>
+  )
+}
+
 function RoutineExerciseRow({
-  item, index, exercise, onChange, onRemove
+  item, index, total, exercise, onChange, onRemove, onMove, onDuplicate
 }: {
   item: RoutineExercise
   index: number
+  total: number
   exercise?: Exercise
   onChange: (updated: RoutineExercise) => void
   onRemove: () => void
+  onMove: (dir: -1 | 1) => void
+  onDuplicate: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const imgUrl = exercise?.imageUrls?.[0] ?? exercise?.mediaUrl ?? ''
+  const [open, setOpen] = useState(false)
+  const imgUrl = exercise?.imageUrls?.[0] ?? exercise?.mediaUrl ?? item.mediaUrl ?? ''
+  const details = item.setDetails
+  const custom = !!details && details.length > 0
+
+  // Keep legacy fields (sets / reps / targetWeightKg) in sync so older clients keep working
+  const withDetails = (d: { reps: number; weightKg?: number }[]): RoutineExercise => ({
+    ...item,
+    setDetails: d,
+    sets: d.length,
+    reps: d[0]?.reps ?? item.reps,
+    targetWeightKg: d[0]?.weightKg ?? item.targetWeightKg,
+  })
+  const setSetCount = (n: number) => {
+    if (custom) {
+      const d = [...details!]
+      while (d.length < n) d.push({ ...(d[d.length - 1] ?? { reps: item.reps }) })
+      onChange(withDetails(d.slice(0, n)))
+    } else onChange({ ...item, sets: n })
+  }
+  const toggleCustom = () => {
+    if (custom) {
+      onChange({ ...item, setDetails: undefined, sets: details!.length, reps: details![0]?.reps ?? item.reps })
+    } else {
+      onChange(withDetails(Array.from({ length: item.sets }, () => ({ reps: item.reps, weightKg: item.targetWeightKg }))))
+      setOpen(true)
+    }
+  }
+  const patchSet = (i: number, patch: Partial<{ reps: number; weightKg?: number }>) =>
+    onChange(withDetails(details!.map((d, k) => (k === i ? { ...d, ...patch } : d))))
+  const removeSet = (i: number) => details!.length > 1 && onChange(withDetails(details!.filter((_, k) => k !== i)))
 
   return (
-    <div className={clsx(
-      'border border-gray-200 rounded-xl overflow-hidden transition-all',
-      'hover:border-gray-300 bg-gray-50'
-    )}>
-      {/* Main row */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        <GripVertical className="w-4 h-4 text-gray-400 cursor-grab shrink-0" />
-        <span className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 text-xs font-bold flex items-center justify-center shrink-0">
-          {index + 1}
-        </span>
+    <div className="border border-gray-200 rounded-2xl bg-white shadow-sm overflow-hidden">
+      <div className="flex gap-3 p-3 sm:p-4">
+        {/* Order controls */}
+        <div className="flex flex-col items-center gap-1 shrink-0">
+          <button type="button" aria-label="Subir" disabled={index === 0} onClick={() => onMove(-1)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 disabled:opacity-25">
+            <ArrowUp className="w-4 h-4" />
+          </button>
+          <span className="w-6 h-6 rounded-md bg-blue-50 text-blue-600 text-xs font-bold flex items-center justify-center">{index + 1}</span>
+          <button type="button" aria-label="Bajar" disabled={index === total - 1} onClick={() => onMove(1)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 disabled:opacity-25">
+            <ArrowDown className="w-4 h-4" />
+          </button>
+        </div>
 
-        {/* Thumbnail */}
-        <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-100 shrink-0">
+        <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
           {imgUrl ? (
-            <img src={imgUrl} alt="" className="w-full h-full object-cover"
-                 onError={e => { e.currentTarget.style.display='none' }} />
-          ) : <Dumbbell className="w-4 h-4 text-gray-500 m-auto mt-1.5" />}
+            <img src={imgUrl} alt="" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none' }} />
+          ) : <Dumbbell className="w-5 h-5 text-gray-400" />}
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 truncate">
-            {item.name || exercise?.name || 'Ejercicio'}
-          </p>
-          {exercise && (
-            <p className="text-xs text-gray-500 truncate">
-              {exercise.muscleGroup || exercise.targetMuscle} · {exercise.equipment}
-            </p>
+          <p className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2">{item.name || exercise?.name || 'Ejercicio'}</p>
+          {(exercise || item.muscleGroup) && (
+            <p className="text-xs text-gray-500 mt-0.5 truncate">{exercise?.muscleGroup || exercise?.targetMuscle || item.muscleGroup}{exercise?.equipment ? ` · ${exercise.equipment}` : ''}</p>
           )}
+          <p className="text-xs font-medium text-blue-600 mt-1">
+            {custom ? details!.map(d => d.reps).join(' / ') + ' reps' : `${item.sets} × ${item.reps}`}
+            {(custom ? details![0]?.weightKg : item.targetWeightKg) ? ` · ${custom ? details![0]?.weightKg : item.targetWeightKg} kg` : ''}
+          </p>
         </div>
 
-        {/* Quick params */}
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">S</span>
-            <input type="number" min={1} max={20}
-                   className="w-10 bg-gray-100 border border-gray-300 rounded-lg px-1.5 py-1 text-xs text-center text-gray-900 focus:outline-none focus:border-brand-500"
-                   value={item.sets}
-                   onChange={e => onChange({...item, sets: Number(e.target.value)})} />
-          </div>
-          <span className="text-gray-400">×</span>
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">R</span>
-            <input type="number" min={1} max={100}
-                   className="w-12 bg-gray-100 border border-gray-300 rounded-lg px-1.5 py-1.5 text-sm text-center text-gray-900 focus:outline-none focus:border-brand-500"
-                   value={item.reps}
-                   onChange={e => onChange({...item, reps: Number(e.target.value)})} />
-          </div>
+        <div className="flex flex-col gap-1 shrink-0">
+          <button type="button" aria-label="Quitar ejercicio" onClick={onRemove}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-red-500 bg-red-50 hover:bg-red-100 active:scale-95 transition-all">
+            <Trash2 className="w-4 h-4" />
+          </button>
+          <button type="button" aria-label="Duplicar ejercicio" onClick={onDuplicate}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 active:scale-95 transition-all">
+            <Copy className="w-4 h-4" />
+          </button>
         </div>
+      </div>
 
-        <button onClick={() => setExpanded(!expanded)} className="btn-ghost p-1.5">
-          {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <SlidersHorizontal className="w-3.5 h-3.5" />}
-        </button>
-        <button onClick={onRemove} className="btn-ghost p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50">
-          <X className="w-3.5 h-3.5" />
+      {/* Quick editing */}
+      <div className="px-3 sm:px-4 pb-3 flex flex-wrap items-end gap-x-5 gap-y-3">
+        <Stepper label="Series" value={custom ? details!.length : item.sets} min={1} max={20} onChange={setSetCount} />
+        {!custom && <Stepper label="Reps" value={item.reps} min={1} max={100} onChange={v => onChange({ ...item, reps: v })} />}
+        {!custom && <Stepper label="Peso (kg)" value={item.targetWeightKg ?? 0} min={0} max={500} step={2.5} onChange={v => onChange({ ...item, targetWeightKg: v || undefined })} />}
+        <button type="button" onClick={() => (custom ? setOpen(o => !o) : toggleCustom())}
+          className="ml-auto h-10 px-3 rounded-xl text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center gap-1.5">
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          {custom ? (open ? 'Ocultar series' : 'Editar series') : 'Personalizar series'}
         </button>
       </div>
 
-      {/* Expanded params */}
-      {expanded && (
-        <div className="px-4 pb-4 pt-1 border-t border-gray-200 grid grid-cols-1 sm:grid-cols-3 gap-3 fade-in">
-          <div>
-            <label className="label text-[10px]">Peso objetivo (kg)</label>
-            <input type="number" min={0} className="input py-1.5 text-xs"
-                   value={item.targetWeightKg ?? ''}
-                   placeholder="0"
-                   onChange={e => onChange({...item, targetWeightKg: Number(e.target.value)})} />
-          </div>
-          <div>
-            <label className="label text-[10px]">RPE (1-10)</label>
-            <input type="number" min={1} max={10} className="input py-1.5 text-xs"
-                   value={item.rpe ?? ''}
-                   placeholder="7"
-                   onChange={e => onChange({...item, rpe: Number(e.target.value)})} />
-          </div>
-          <div>
-            <label className="label text-[10px]">Notas</label>
-            <input type="text" className="input py-1.5 text-xs"
-                   value={item.notes ?? ''}
-                   placeholder="e.g. Foco en excéntrica"
-                   onChange={e => onChange({...item, notes: e.target.value})} />
+      {/* Per-set customization */}
+      {custom && open && (
+        <div className="px-3 sm:px-4 pb-3 space-y-2 fade-in">
+          <div className="rounded-xl bg-gray-50 p-3 space-y-2">
+            <div className="grid grid-cols-[3rem_1fr_1fr_2rem] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400 px-1">
+              <span>Serie</span><span>Reps</span><span>Peso kg</span><span />
+            </div>
+            {details!.map((d, i) => (
+              <div key={i} className="grid grid-cols-[3rem_1fr_1fr_2rem] gap-2 items-center">
+                <span className="text-sm font-bold text-gray-700 pl-1">{i + 1}</span>
+                <input type="number" inputMode="numeric" min={1} max={100} value={d.reps}
+                  onChange={e => patchSet(i, { reps: Math.max(1, Number(e.target.value) || 1) })}
+                  className="h-10 rounded-xl border border-gray-200 bg-white text-center text-sm font-bold text-gray-900 outline-none focus:border-blue-400" />
+                <input type="number" inputMode="decimal" min={0} step={2.5} value={d.weightKg ?? ''} placeholder="—"
+                  onChange={e => patchSet(i, { weightKg: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })}
+                  className="h-10 rounded-xl border border-gray-200 bg-white text-center text-sm font-bold text-gray-900 outline-none focus:border-blue-400" />
+                <button type="button" aria-label={`Quitar serie ${i + 1}`} disabled={details!.length <= 1} onClick={() => removeSet(i)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 disabled:opacity-25">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button type="button" onClick={() => setSetCount(details!.length + 1)}
+                className="h-9 px-3 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-700 flex items-center gap-1.5 active:scale-95">
+                <Plus className="w-3.5 h-3.5" /> Agregar serie
+              </button>
+              <button type="button" onClick={() => onChange(withDetails(details!.map(() => ({ ...details![0] }))))}
+                className="h-9 px-3 rounded-xl text-xs font-semibold bg-white border border-gray-200 text-gray-700 active:scale-95">
+                Copiar serie 1 a todas
+              </button>
+              <button type="button" onClick={toggleCustom}
+                className="h-9 px-3 rounded-xl text-xs font-semibold text-gray-500 active:scale-95">
+                Volver a simple
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {/* Extra parameters */}
+      <div className="px-3 sm:px-4 pb-4">
+        <button type="button" onClick={() => setOpen(o => !o)} className={clsx('text-xs font-medium text-gray-500 flex items-center gap-1', custom && 'hidden')}>
+          <Timer className="w-3.5 h-3.5" /> Descanso, RPE y notas {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        {(open || custom) && (
+          <div className={clsx('grid grid-cols-1 sm:grid-cols-3 gap-3 fade-in', !custom && 'mt-3')}>
+            <div>
+              <label className="label text-[10px]">Descanso (seg)</label>
+              <input type="number" inputMode="numeric" min={0} max={600} step={15} className="input py-2 text-sm"
+                value={item.restSeconds ?? ''} placeholder="90"
+                onChange={e => onChange({ ...item, restSeconds: e.target.value === '' ? undefined : Math.min(600, Math.max(0, Number(e.target.value))) })} />
+            </div>
+            <div>
+              <label className="label text-[10px]">RPE (1-10)</label>
+              <input type="number" inputMode="decimal" min={1} max={10} className="input py-2 text-sm"
+                value={item.rpe ?? ''} placeholder="7"
+                onChange={e => onChange({ ...item, rpe: e.target.value === '' ? undefined : Math.min(10, Math.max(1, Number(e.target.value))) })} />
+            </div>
+            <div>
+              <label className="label text-[10px]">Notas para el atleta</label>
+              <input type="text" className="input py-2 text-sm" value={item.notes ?? ''} placeholder="Ej. Bajar en 3 segundos"
+                onChange={e => onChange({ ...item, notes: e.target.value })} />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -378,6 +479,13 @@ export default function RoutinesPage() {
   const [showAssignModal, setShowAssignModal] = useState<string | null>(null)
   const [assignSelected, setAssignSelected] = useState<string[]>([])
   const [assigning, setAssigning] = useState(false)
+  const [snapshot, setSnapshot] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState('')
+  const [undoItem, setUndoItem] = useState<{ idx: number; item: RoutineExercise; day: string } | null>(null)
+  const [clearConfirm, setClearConfirm] = useState(false)
+  const [deleteRoutineConfirm, setDeleteRoutineConfirm] = useState(false)
+  const [copyOpen, setCopyOpen] = useState(false)
+  const [copyTargets, setCopyTargets] = useState<string[]>([])
 
   useEffect(() => {
     getAthletes().then(setAthletes).catch(() => {})
@@ -402,8 +510,9 @@ export default function RoutinesPage() {
         setSchedule(r.schedule ?? {})
         setRoutineTitle(r.title)
         setRoutineDesc(r.description)
+        setSnapshot(JSON.stringify({ t: r.title, d: r.description, s: r.schedule ?? {} }))
       })
-      .catch(() => setSchedule({}))
+      .catch(() => { setSchedule({}); setSnapshot(null) })
       .finally(() => setLoading(false))
   }, [selectedAthlete, viewMode])
 
@@ -434,17 +543,90 @@ export default function RoutinesPage() {
   }
 
   const removeExercise = (idx: number) => {
+    const item = currentDay.exercises[idx]
     updateDay({ ...currentDay, exercises: currentDay.exercises.filter((_, i) => i !== idx) })
+    setUndoItem({ idx, item, day: selectedDay })
   }
+
+  const undoRemove = () => {
+    if (!undoItem) return
+    setSchedule(sc => {
+      const day = sc[undoItem.day] ?? { dayName: undoItem.day, focus: '', exercises: [] }
+      const exs = [...day.exercises]
+      exs.splice(Math.min(undoItem.idx, exs.length), 0, undoItem.item)
+      return { ...sc, [undoItem.day]: { ...day, exercises: exs } }
+    })
+    setUndoItem(null)
+  }
+
+  const moveExercise = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir
+    if (j < 0 || j >= currentDay.exercises.length) return
+    const exs = [...currentDay.exercises]
+    ;[exs[idx], exs[j]] = [exs[j], exs[idx]]
+    updateDay({ ...currentDay, exercises: exs })
+  }
+
+  const duplicateExercise = (idx: number) => {
+    const exs = [...currentDay.exercises]
+    exs.splice(idx + 1, 0, JSON.parse(JSON.stringify(exs[idx])))
+    updateDay({ ...currentDay, exercises: exs })
+  }
+
+  const clearDay = () => {
+    if (!clearConfirm) { setClearConfirm(true); setTimeout(() => setClearConfirm(false), 3500); return }
+    updateDay({ ...currentDay, exercises: [] })
+    setClearConfirm(false)
+  }
+
+  const copyDay = () => {
+    setSchedule(sc => {
+      const next = { ...sc }
+      for (const d of copyTargets) {
+        next[d] = { dayName: d, focus: currentDay.focus, exercises: JSON.parse(JSON.stringify(currentDay.exercises)) }
+      }
+      return next
+    })
+    setCopyOpen(false); setCopyTargets([])
+  }
+
+  const deleteWholeRoutine = async () => {
+    if (!selectedAthlete) return
+    if (!deleteRoutineConfirm) { setDeleteRoutineConfirm(true); setTimeout(() => setDeleteRoutineConfirm(false), 4000); return }
+    setSaving(true); setSaveError('')
+    try {
+      await saveRoutine(selectedAthlete, { title: routineTitle, description: routineDesc, schedule: {} })
+      setSchedule({})
+      setSnapshot(JSON.stringify({ t: routineTitle, d: routineDesc, s: {} }))
+    } catch (e: any) { setSaveError(e?.message || 'No se pudo eliminar la rutina') }
+    finally { setSaving(false); setDeleteRoutineConfirm(false) }
+  }
+
+  const currentSnapshot = JSON.stringify({ t: routineTitle, d: routineDesc, s: schedule })
+  const dirty = viewMode === 'athletes' && !!selectedAthlete && snapshot !== null && snapshot !== currentSnapshot
+
+  useEffect(() => {
+    if (!dirty) return
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [dirty])
+
+  useEffect(() => {
+    if (!undoItem) return
+    const t = setTimeout(() => setUndoItem(null), 7000)
+    return () => clearTimeout(t)
+  }, [undoItem])
 
   const handleSaveRoutine = async () => {
     if (!selectedAthlete) return
-    setSaving(true)
+    setSaving(true); setSaveError('')
     try {
       await saveRoutine(selectedAthlete, { title: routineTitle, description: routineDesc, schedule })
+      setSnapshot(currentSnapshot)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
-    } catch { /* ignore */ }
+    } catch (e: any) { setSaveError(e?.message || 'No se pudo guardar la rutina. Revisa tu conexión.') }
     finally { setSaving(false) }
   }
 
@@ -483,7 +665,7 @@ export default function RoutinesPage() {
   const selectedAthleteData = athletes.find(a => a.id === selectedAthlete)
 
   return (
-    <div className="space-y-6 fade-in pb-12">
+    <div className="space-y-6 fade-in pb-28">
       {/* Header Tabs */}
       <div className="flex items-center gap-4 border-b border-gray-200">
         <button
@@ -648,8 +830,8 @@ export default function RoutinesPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div className="lg:col-span-1 space-y-1">
-              <p className="label px-2">Día de la semana</p>
+            <div className="lg:col-span-1 flex lg:block gap-2 lg:space-y-1 overflow-x-auto pb-1 -mx-1 px-1">
+              <p className="label px-2 hidden lg:block">Día de la semana</p>
               {DAYS.map(day => {
                 const dayData = schedule[day]
                 const count   = dayData?.exercises?.length ?? 0
@@ -659,7 +841,7 @@ export default function RoutinesPage() {
                     id={`btn-day-${day}`}
                     onClick={() => setSelectedDay(day)}
                     className={clsx(
-                      'w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all',
+                      'lg:w-full shrink-0 flex items-center justify-between gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all',
                       selectedDay === day
                         ? 'text-blue-600 bg-blue-50 border border-blue-200'
                         : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100 border border-transparent'
@@ -677,21 +859,58 @@ export default function RoutinesPage() {
             </div>
 
             <div className="lg:col-span-3 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="font-semibold text-gray-900">{selectedDay}</h2>
                   {currentDay.focus && <p className="text-xs text-gray-500 mt-0.5">🎯 {currentDay.focus}</p>}
                 </div>
-                <button
-                  id="btn-add-exercise"
-                  onClick={() => setShowPicker(true)}
-                  className="btn-primary"
-                  disabled={viewMode === 'athletes' && !selectedAthlete}
-                >
-                  <Plus className="w-4 h-4" />
-                  Agregar ejercicio
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {currentDay.exercises.length > 0 && (
+                    <>
+                      <button type="button" onClick={() => setCopyOpen(o => !o)} className="btn-secondary px-3 py-2 text-xs">
+                        <CopyPlus className="w-4 h-4" /> Copiar día
+                      </button>
+                      <button type="button" onClick={clearDay}
+                        className={clsx('px-3 py-2 text-xs rounded-xl font-semibold flex items-center gap-1.5 border transition-colors',
+                          clearConfirm ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-600 border-red-200 hover:bg-red-50')}>
+                        <Trash2 className="w-4 h-4" /> {clearConfirm ? '¿Seguro? Toca otra vez' : 'Vaciar día'}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    id="btn-add-exercise"
+                    onClick={() => setShowPicker(true)}
+                    className="btn-primary"
+                    disabled={viewMode === 'athletes' && !selectedAthlete}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Agregar ejercicio
+                  </button>
+                </div>
               </div>
+
+              {copyOpen && (
+                <div className="card fade-in">
+                  <p className="text-sm font-semibold text-gray-900">Copiar {selectedDay} a…</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Reemplaza lo que ya haya en los días elegidos.</p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {DAYS.filter(d => d !== selectedDay).map(d => {
+                      const on = copyTargets.includes(d)
+                      return (
+                        <button key={d} type="button" onClick={() => setCopyTargets(t => on ? t.filter(x => x !== d) : [...t, d])}
+                          className={clsx('px-3 py-2 rounded-xl text-xs font-semibold border transition-colors',
+                            on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200')}>
+                          {d}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <button type="button" onClick={copyDay} disabled={copyTargets.length === 0} className="btn-primary text-sm disabled:opacity-40">Copiar</button>
+                    <button type="button" onClick={() => { setCopyOpen(false); setCopyTargets([]) }} className="btn-ghost text-sm">Cancelar</button>
+                  </div>
+                </div>
+              )}
 
               {viewMode === 'athletes' && !selectedAthlete ? (
                 <div className="card flex flex-col items-center justify-center py-16 gap-3 text-gray-500">
@@ -716,8 +935,11 @@ export default function RoutinesPage() {
                       item={item}
                       index={idx}
                       exercise={exerciseMap[item.exerciseId]}
+                      total={currentDay.exercises.length}
                       onChange={(u) => updateExercise(idx, u)}
                       onRemove={() => removeExercise(idx)}
+                      onMove={(dir) => moveExercise(idx, dir)}
+                      onDuplicate={() => duplicateExercise(idx)}
                     />
                   ))}
                 </div>
@@ -725,6 +947,45 @@ export default function RoutinesPage() {
             </div>
           </div>
         </>
+      )}
+
+      {saveError && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm fade-in">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {saveError}
+        </div>
+      )}
+
+      {viewMode === 'athletes' && selectedAthlete && !loading && (
+        <div className="pt-2">
+          <button type="button" onClick={deleteWholeRoutine} disabled={saving}
+            className={clsx('text-xs font-semibold px-3 py-2 rounded-xl border transition-colors',
+              deleteRoutineConfirm ? 'bg-red-500 text-white border-red-500' : 'text-red-600 border-red-200 hover:bg-red-50')}>
+            {deleteRoutineConfirm ? '¿Seguro? Se borra TODA la rutina del atleta' : 'Eliminar rutina completa'}
+          </button>
+        </div>
+      )}
+
+      {/* Undo toast */}
+      {undoItem && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-8 z-50 flex items-center gap-3 bg-gray-900 text-white pl-4 pr-2 py-2 rounded-2xl shadow-xl fade-in">
+          <span className="text-sm">Ejercicio quitado</span>
+          <button type="button" onClick={undoRemove} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/15 text-sm font-semibold active:scale-95">
+            <Undo2 className="w-4 h-4" /> Deshacer
+          </button>
+        </div>
+      )}
+
+      {/* Unsaved changes bar */}
+      {dirty && (
+        <div className="fixed bottom-0 left-0 right-0 md:left-64 z-40 bg-white/95 backdrop-blur border-t border-gray-200 px-4 py-3 flex items-center justify-between gap-3"
+             style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+          <div className="flex items-center gap-2 text-sm text-amber-700 font-medium">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" /> Cambios sin guardar
+          </div>
+          <button type="button" onClick={handleSaveRoutine} disabled={saving} className="btn-primary">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Guardar rutina
+          </button>
+        </div>
       )}
 
       {showPicker && (

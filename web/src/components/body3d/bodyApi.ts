@@ -1,3 +1,4 @@
+import { normalizeParams } from './bodyModel'
 import type { BodyParams } from './bodyModel'
 
 const BASE = import.meta.env.VITE_API_URL ?? ''
@@ -20,7 +21,8 @@ export async function fetchScans(athleteId?: string): Promise<BodyScan[]> {
     : `${BASE}/api/v1/user/body-scans`
   const r = await fetch(url, { headers: headers() })
   if (!r.ok) throw new Error('No se pudieron cargar los registros')
-  return r.json()
+  const list = (await r.json()) as BodyScan[]
+  return list.map(sc => ({ ...sc, params: normalizeParams(sc.params) }))
 }
 
 export async function saveScan(params: BodyParams, label: string): Promise<BodyScan> {
@@ -29,7 +31,7 @@ export async function saveScan(params: BodyParams, label: string): Promise<BodyS
   })
   const d = await r.json().catch(() => null)
   if (!r.ok) throw new Error(d?.error || 'No se pudo guardar')
-  return d
+  return { ...d, params: normalizeParams(d.params) }
 }
 
 export async function deleteScan(id: string): Promise<void> {

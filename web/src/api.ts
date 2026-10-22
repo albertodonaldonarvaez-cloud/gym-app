@@ -55,6 +55,8 @@ export interface RoutineExercise {
   reps: number
   targetWeightKg?: number
   rpe?: number
+  restSeconds?: number
+  setDetails?: { reps: number; weightKg?: number }[]
   notes?: string
   name?: string
   mediaUrl?: string

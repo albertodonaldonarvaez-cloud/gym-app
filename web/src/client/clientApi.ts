@@ -21,7 +21,8 @@ const authHeader = () => ({
 export interface AuthUser { id: string; name: string; email: string; role: string }
 export interface RoutineExercise {
   exerciseId: string; name?: string; sets: number; reps: number
-  targetWeightKg?: number; rpe?: number; notes?: string
+  targetWeightKg?: number; rpe?: number; notes?: string; restSeconds?: number
+  setDetails?: { reps: number; weightKg?: number }[]
   mediaUrl?: string; instructions?: string; muscleGroup?: string
 }
 export interface DaySchedule { dayName: string; focus: string; exercises: RoutineExercise[] }
@@ -81,10 +82,12 @@ export async function getLastPerformance(exerciseId: string) {
   } catch { return null }
 }
 
-export async function syncSets(sets: SetLog[]) {
-  if (sets.length === 0) return
+export interface SessionMeta { sessionId: string; dayName?: string; durationSeconds?: number }
+
+export async function syncSets(sets: SetLog[], session?: SessionMeta) {
+  if (sets.length === 0 && !session) return
   const r = await fetch(`${BASE}/api/v1/workouts/sync`, {
-    method: 'POST', headers: authHeader(), body: JSON.stringify({ sets })
+    method: 'POST', headers: authHeader(), body: JSON.stringify({ sets, session })
   })
   if (!r.ok) throw new Error(`Sync failed: ${r.status}`)
 }
@@ -139,9 +142,9 @@ export function addPendingSet(s: SetLog) {
   localStorage.setItem(PENDING_KEY, JSON.stringify(sets))
 }
 export function clearPendingSets() { localStorage.removeItem(PENDING_KEY) }
-export async function flushPendingSets() {
+export async function flushPendingSets(session?: SessionMeta) {
   const sets = getPendingSets()
-  if (sets.length === 0) return
-  await syncSets(sets)
+  if (sets.length === 0 && !session) return
+  await syncSets(sets, session)
   clearPendingSets()
 }

@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { AlertTriangle } from 'lucide-react'
 import {
-  buildBody, createMaterials, disposeGroup, disposeMaterials, lerpInto, renderDistance, toRender,
+  buildBody, createMaterials, disposeGroup, disposeMaterials, lerpInto, renderDistance, setSkinColor, toRender,
 } from './bodyModel'
-import type { BodyParams, RenderState } from './bodyModel'
+import type { BodyParams, RenderState, ZoneKey } from './bodyModel'
+import { BakedInstance, loadBakedBody } from './bodyBaked'
 
 interface Props {
   params: BodyParams
   /** Ángulo controlado desde fuera (para sincronizar varios visores). */
   yaw?: number
   onYawChange?: (yaw: number) => void
+  /** Zona muscular a resaltar mientras se edita su slider. */
+  highlight?: ZoneKey | ''
   className?: string
 }
 
@@ -26,7 +29,7 @@ function makeShadowTexture() {
   return new THREE.CanvasTexture(c)
 }
 
-export default function BodyViewer({ params, yaw, onYawChange, className = '' }: Props) {
+export default function BodyViewer({ params, yaw, onYawChange, highlight = '', className = '' }: Props) {
   const mountRef = useRef<HTMLDivElement>(null)
   const targetRef = useRef<RenderState>(toRender(params))
   const yawTargetRef = useRef<number | undefined>(yaw)
@@ -34,7 +37,7 @@ export default function BodyViewer({ params, yaw, onYawChange, className = '' }:
   const [unsupported, setUnsupported] = useState(false)
 
   // Mantener refs al día sin recrear la escena
-  targetRef.current = toRender(params)
+  targetRef.current = toRender(params, highlight)
   yawTargetRef.current = yaw
   onYawRef.current = onYawChange
 
@@ -87,8 +90,11 @@ export default function BodyViewer({ params, yaw, onYawChange, className = '' }:
     const pivot = new THREE.Group()
     scene.add(pivot)
 
-    const cur: RenderState = { ...targetRef.current }
+    const cur: RenderState = { ...targetRef.current, hl: 0, hlKey: '' }
     let bodyGroup: THREE.Group | null = null
+    let inst: BakedInstance | null = null
+    let procFallback = false
+    let disposed = false
     let needsBuild = true
     let needsRender = true
     let yawNow = yawTargetRef.current ?? 0.35
@@ -99,8 +105,15 @@ export default function BodyViewer({ params, yaw, onYawChange, className = '' }:
     let userTouched = false
     const t0 = performance.now()
 
+    // Modelo de Blender (morph targets). Si no está disponible, se usa el modelo procedural de respaldo.
+    loadBakedBody()
+      .then(data => { if (disposed) return; inst = new BakedInstance(data, mats); pivot.add(inst.group); needsBuild = true })
+      .catch(() => { if (disposed) return; procFallback = true; needsBuild = true })
+
     const rebuild = () => {
-      mats.skin.color.setRGB(cur.r, cur.gr, cur.b)
+      setSkinColor(mats, cur)
+      if (inst) { inst.update(cur); return }
+      if (!procFallback) return // esperando el modelo
       if (bodyGroup) { pivot.remove(bodyGroup); disposeGroup(bodyGroup) }
       bodyGroup = buildBody(cur, mats)
       pivot.add(bodyGroup)
@@ -174,7 +187,9 @@ export default function BodyViewer({ params, yaw, onYawChange, className = '' }:
     raf = requestAnimationFrame(tick)
 
     return () => {
+      disposed = true
       cancelAnimationFrame(raf)
+      if (inst) inst.dispose()
       ro.disconnect()
       el.removeEventListener('pointerdown', down)
       el.removeEventListener('pointermove', move)

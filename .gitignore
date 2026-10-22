@@ -23,3 +23,6 @@ Thumbs.db
 
 web/dist/
 web/dev-dist/
+
+__pycache__/
+*.pyc

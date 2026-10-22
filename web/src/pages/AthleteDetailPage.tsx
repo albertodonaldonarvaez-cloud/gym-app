@@ -1,4 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
+import AthleteHistory from '../components/AthleteHistory';
 import { useParams, Link } from 'react-router-dom';
 const CoachBodyView = lazy(() => import('../components/body3d/CoachBodyView'));
 import {
@@ -196,6 +197,15 @@ export default function AthleteDetailPage() {
           </div>
         </div>
 
+        {/* Full training history — most important view for the coach */}
+        <div id="historial" className="card bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 scroll-mt-4">
+          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-gray-500" />
+            Historial de entrenamientos
+          </h2>
+          <AthleteHistory athleteId={id as string} />
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
           {/* Weekly Frequency Chart */}
@@ -255,39 +265,6 @@ export default function AthleteDetailPage() {
                 })
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Workout History */}
-        <div className="card bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-gray-500" />
-            Historial de Entrenamientos
-          </h2>
-          <div className="space-y-4">
-            {workouts.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-8">No hay entrenamientos recientes.</p>
-            ) : (
-              workouts.map(workout => (
-                <div key={workout.id} className="p-4 border border-gray-100 rounded-lg hover:shadow-sm transition-shadow">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-3">
-                    <div>
-                      <p className="font-semibold text-gray-900">{new Date(workout.date).toLocaleDateString()} - {workout.dayName}</p>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
-                        <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {formatDuration(workout.durationSeconds)}</span>
-                        <span className="flex items-center gap-1"><Flame className="h-3.5 w-3.5" /> {workout.caloriesBurned} kcal</span>
-                        <span className="flex items-center gap-1"><Activity className="h-3.5 w-3.5" /> {workout.totalSets} series</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {workout.exercises.map((ex, i) => (
-                      <span key={i} className="badge-gray text-xs">{ex}</span>
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
           </div>
         </div>
 

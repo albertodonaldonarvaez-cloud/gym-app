@@ -34,6 +34,7 @@ export default function WorkoutPage() {
   const [showExerciseList, setShowExerciseList] = useState(false)
   const [lastPerf, setLastPerf] = useState<{ weightKg: number; reps: number } | null>(null)
   const [sessionId] = useState(() => `ws_${Date.now()}`)
+  const [startedAt] = useState(() => Date.now())
   const [finishing, setFinishing] = useState(false)
   const [completedExercises, setCompletedExercises] = useState<Set<number>>(new Set())
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -54,7 +55,11 @@ export default function WorkoutPage() {
   useEffect(() => {
     if (!current) return
     const prev = exerciseLogs[currentIdx]
-    if (prev && prev.length > 0) {
+    const plan = current.setDetails?.[prev?.length ?? 0]
+    if (plan) {
+      setReps(String(plan.reps))
+      setWeight(String(plan.weightKg ?? prev?.[prev.length - 1]?.weightKg ?? lastPerf?.weightKg ?? current.targetWeightKg ?? ''))
+    } else if (prev && prev.length > 0) {
       const last = prev[prev.length - 1]
       setWeight(String(last.weightKg))
       setReps(String(last.reps))
@@ -114,8 +119,13 @@ export default function WorkoutPage() {
     // Try to sync immediately (non-blocking)
     flushPendingSets().catch(() => {})
 
+    const nextPlan = current.setDetails?.[newLogs.length]
+    if (nextPlan) {
+      setReps(String(nextPlan.reps))
+      if (nextPlan.weightKg !== undefined) setWeight(String(nextPlan.weightKg))
+    }
     if (navigator.vibrate) navigator.vibrate(50)
-    setRestSecs(90)
+    setRestSecs(current.restSeconds ?? 90)
     setIsResting(true)
     setShowInfo(false)
   }, [current, weight, reps, currentIdx, exerciseLogs, sessionId, state])
@@ -124,7 +134,9 @@ export default function WorkoutPage() {
 
   const finishWorkout = async () => {
     setFinishing(true)
-    try { await flushPendingSets() } catch {}
+    try {
+      await flushPendingSets({ sessionId, dayName: state?.dayName, durationSeconds: Math.round((Date.now() - startedAt) / 1000) })
+    } catch {}
     navigate('/client', { replace: true })
   }
 

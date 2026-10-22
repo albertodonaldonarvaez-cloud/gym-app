@@ -449,18 +449,31 @@ export default function ExercisesPage() {
 
   useEffect(() => { setPage(1); load(1) }, [load])
 
-  const handleDelete = async (ex: Exercise) => {
-    if (!token || !window.confirm(`¿Estás seguro de eliminar el ejercicio "${ex.name}"?`)) return
+  const handleDelete = async (ex: Exercise, force = false): Promise<void> => {
+    if (!token) return
+    if (!force && !window.confirm(`¿Eliminar el ejercicio "${ex.name}"?`)) return
     try {
-      const res = await fetch(`${BASE}/api/exercises/${ex.id}`, {
+      const res = await fetch(`${BASE}/api/exercises/${ex.id}${force ? '?force=1' : ''}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       })
-      if (!res.ok) throw new Error('Error al eliminar')
+      if (res.status === 409) {
+        const d = await res.json().catch(() => null)
+        if (d?.reason === 'in_routines') {
+          if (window.confirm(`${d.error}\n\n¿Eliminarlo de todas formas?`)) return handleDelete(ex, true)
+        } else {
+          alert(d?.error || 'No se puede eliminar este ejercicio.')
+        }
+        return
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        throw new Error(d?.error || 'Error al eliminar')
+      }
       setSelected(null)
       load(page)
-    } catch (err) {
-      alert('Error al eliminar el ejercicio.')
+    } catch (err: any) {
+      alert(err?.message || 'Error al eliminar el ejercicio.')
     }
   }
 
@@ -632,7 +645,7 @@ export default function ExercisesPage() {
         <ExerciseModal 
           exercise={selected} 
           onClose={() => setSelected(null)} 
-          canEdit={isCoach && (selected as any).coachId === user?.id || isCoach} 
+          canEdit={user?.role === 'ADMIN' || (isCoach && !!(selected as any).isCustom && (selected as any).coachId === user?.id)} 
           onEdit={() => {
             setEditExercise(selected)
             setSelected(null)
