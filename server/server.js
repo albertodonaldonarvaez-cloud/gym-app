@@ -497,9 +497,12 @@ const clampInt = (v, min, max, def) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
 };
+const oneOf = (v, list, def) => (list.includes(v) ? v : def);
+const hexColor = (v, def) => (/^#[0-9a-fA-F]{6}$/.test(String(v)) ? String(v).toLowerCase() : def);
 function sanitizeBodyParams(p = {}) {
+  const female = p.gender === 'female';
   return {
-    gender: p.gender === 'female' ? 'female' : 'male',
+    gender: female ? 'female' : 'male',
     skin: clampInt(p.skin, 0, 5, 1),
     heightCm: clampInt(p.heightCm, 130, 220, 170),
     fat: clampInt(p.fat, 0, 100, 35),
@@ -520,6 +523,21 @@ function sanitizeBodyParams(p = {}) {
     zGlutes: clampInt(p.zGlutes, 0, 100, 50),
     zQuads: clampInt(p.zQuads, 0, 100, 50),
     zCalves: clampInt(p.zCalves, 0, 100, 50),
+    faceW: clampInt(p.faceW, 0, 100, 50),
+    jaw: clampInt(p.jaw, 0, 100, 50),
+    nose: clampInt(p.nose, 0, 100, 50),
+    lips: clampInt(p.lips, 0, 100, 50),
+    eyes: clampInt(p.eyes, 0, 100, 50),
+    hair: oneOf(p.hair, ['short', 'buzz', 'long', 'ponytail', 'bun', 'curly', 'bald'], female ? 'long' : 'short'),
+    hairColor: hexColor(p.hairColor, '#3a2a20'),
+    eyeColor: hexColor(p.eyeColor, '#5a3d2b'),
+    top: oneOf(p.top, ['none', 'bra', 'tank'], female ? 'bra' : 'none'),
+    bottom: oneOf(p.bottom, ['shorts', 'leggings', 'boxer'], female ? 'leggings' : 'shorts'),
+    shoes: oneOf(p.shoes, ['sneakers', 'none'], 'sneakers'),
+    topColor: hexColor(p.topColor, '#00a8e8'),
+    bottomColor: hexColor(p.bottomColor, '#27407a'),
+    accentColor: hexColor(p.accentColor, '#f3f4f6'),
+    shoeColor: hexColor(p.shoeColor, '#f3f4f6'),
   };
 }
 const parseScan = (s) => {

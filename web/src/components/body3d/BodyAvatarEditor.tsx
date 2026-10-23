@@ -3,13 +3,14 @@ import { AlertCircle, Check, Loader2, Minus, MessageSquarePlus, Plus, RotateCcw,
 import BodyViewer from './BodyViewer'
 import BodyProgress, { ViewButtons } from './BodyProgress'
 import {
-  HEIGHT_MAX, HEIGHT_MIN, PRESETS, SKIN_TONES, ZONES, applyPreset, defaultParams, estFatPct, fatLabel, muscleLabel,
+  BOTTOM_OPTIONS, CLOTH_COLORS, EYE_COLORS, HAIR_COLORS, HAIR_OPTIONS, HEIGHT_MAX, HEIGHT_MIN, PRESETS, SHOE_OPTIONS, SKIN_TONES,
+  TOP_OPTIONS, ZONES, applyPreset, defaultParams, estFatPct, fatLabel, muscleLabel, switchGender,
 } from './bodyModel'
 import type { BodyParams, Gender, ZoneKey } from './bodyModel'
 import { deleteScan, fetchScans, saveScan } from './bodyApi'
 import type { BodyScan } from './bodyApi'
 
-type Tab = 'body' | 'muscle' | 'shape'
+type Tab = 'body' | 'muscle' | 'shape' | 'style'
 
 function Slider({
   label, value, min = 0, max = 100, step = 1, onChange, left, right, display, onActivate, big = false,
@@ -48,6 +49,40 @@ function Slider({
           <span>{left}</span><span>{right}</span>
         </div>
       )}
+    </div>
+  )
+}
+
+function Chips<T extends string>({ options, value, onChange }: { options: { id: T; label: string }[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map(o => (
+        <button key={o.id} type="button" onClick={() => onChange(o.id)}
+          className={`px-3.5 py-2 rounded-full text-xs font-semibold transition-all active:scale-95 ${value === o.id ? 'bg-[#007AFF] text-white shadow' : 'bg-gray-100 text-gray-700'}`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ColorRow({ label, value, palette, onChange }: { label: string; value: string; palette: string[]; onChange: (v: string) => void }) {
+  const custom = !palette.includes(value.toLowerCase())
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{label}</p>
+      <div className="flex flex-wrap items-center gap-2.5">
+        {palette.map(c => (
+          <button key={c} type="button" onClick={() => onChange(c)} aria-label={`${label} ${c}`}
+            className={`w-8 h-8 rounded-full border border-black/10 transition-all ${value.toLowerCase() === c ? 'ring-2 ring-offset-2 ring-[#007AFF] scale-110' : ''}`}
+            style={{ background: c }} />
+        ))}
+        <label className={`relative w-8 h-8 rounded-full overflow-hidden cursor-pointer border border-black/10 ${custom ? 'ring-2 ring-offset-2 ring-[#007AFF]' : ''}`}
+          style={{ background: custom ? value : 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }} aria-label={`${label} personalizado`}>
+          <input type="color" value={/^#[0-9a-f]{6}$/i.test(value) ? value : '#888888'} onChange={e => onChange(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+        </label>
+      </div>
     </div>
   )
 }
@@ -92,7 +127,7 @@ export default function BodyAvatarEditor({ onSaved }: { onSaved?: (p: BodyParams
 
   const set = <K extends keyof BodyParams>(k: K, v: BodyParams[K]) => { setParams(p => ({ ...p, [k]: v })); setJustSaved(false) }
   const pickZone = (z: ZoneKey) => { setZone(z); setYaw(ZONES.find(x => x.key === z)!.yaw) }
-  const goTab = (t: Tab) => { setTab(t); if (t === 'muscle') setYaw(zoneDef.yaw) }
+  const goTab = (t: Tab) => { setTab(t); if (t === 'muscle') setYaw(zoneDef.yaw); if (t === 'style') setYaw(0) }
   const zoneLevel = (z: (typeof ZONES)[number]) => Math.round(Math.min(1, Math.max(0, params.muscle / 100 + (Number(params[z.field]) - 50) / 100)) * 100)
 
   const save = async () => {
@@ -113,7 +148,7 @@ export default function BodyAvatarEditor({ onSaved }: { onSaved?: (p: BodyParams
   }
 
   const genderBtn = (g: Gender, text: string, symbol: string) => (
-    <button type="button" onClick={() => set('gender', g)}
+    <button type="button" onClick={() => { setParams(p => switchGender(p, g)); setJustSaved(false) }}
       className={`flex-1 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 transition-all ${
         params.gender === g ? 'bg-[#007AFF] text-white shadow' : 'text-gray-600'
       }`}>
@@ -177,7 +212,7 @@ export default function BodyAvatarEditor({ onSaved }: { onSaved?: (p: BodyParams
           {/* Panel de controles con pestañas */}
           <div className="bg-white rounded-3xl shadow-sm overflow-hidden">
             <div className="flex border-b border-gray-100">
-              {([['body', 'Cuerpo'], ['muscle', 'Músculos'], ['shape', 'Proporciones']] as const).map(([k, t]) => (
+              {([['body', 'Cuerpo'], ['muscle', 'Músculos'], ['shape', 'Forma'], ['style', 'Estilo']] as const).map(([k, t]) => (
                 <button key={k} type="button" onClick={() => goTab(k)}
                   className={`flex-1 py-3.5 text-sm font-semibold transition-colors relative ${tab === k ? 'text-[#007AFF]' : 'text-gray-400'}`}>
                   {t}
@@ -256,6 +291,36 @@ export default function BodyAvatarEditor({ onSaved }: { onSaved?: (p: BodyParams
                       onChange={v => set(f.key, v as never)} left={f.left} right={f.right}
                       display={`${(params[f.key] as number) - 50 > 0 ? '+' : ''}${(params[f.key] as number) - 50}`} />
                   ))}
+                </div>
+              )}
+              {tab === 'style' && (
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Peinado</p>
+                    <Chips options={HAIR_OPTIONS} value={params.hair} onChange={v => set('hair', v)} />
+                  </div>
+                  {params.hair !== 'bald' && <ColorRow label="Color de cabello" value={params.hairColor} palette={HAIR_COLORS} onChange={v => set('hairColor', v)} />}
+                  <ColorRow label="Color de ojos" value={params.eyeColor} palette={EYE_COLORS} onChange={v => set('eyeColor', v)} />
+
+                  <div className="space-y-4 pt-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Rostro</p>
+                    <Slider label="Ancho del rostro" value={params.faceW} onChange={v => set('faceW', v)} left="Delgado" right="Ancho" display={`${params.faceW - 50 > 0 ? '+' : ''}${params.faceW - 50}`} />
+                    <Slider label="Mandíbula" value={params.jaw} onChange={v => set('jaw', v)} left="Fina" right="Marcada" display={`${params.jaw - 50 > 0 ? '+' : ''}${params.jaw - 50}`} />
+                    <Slider label="Nariz" value={params.nose} onChange={v => set('nose', v)} left="Pequeña" right="Grande" display={`${params.nose - 50 > 0 ? '+' : ''}${params.nose - 50}`} />
+                    <Slider label="Labios" value={params.lips} onChange={v => set('lips', v)} left="Finos" right="Gruesos" display={`${params.lips - 50 > 0 ? '+' : ''}${params.lips - 50}`} />
+                    <Slider label="Ojos" value={params.eyes} onChange={v => set('eyes', v)} left="Pequeños" right="Grandes" display={`${params.eyes - 50 > 0 ? '+' : ''}${params.eyes - 50}`} />
+                  </div>
+
+                  <div className="space-y-4 pt-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ropa deportiva</p>
+                    <div><p className="text-[11px] text-gray-500 mb-1.5">Parte de arriba</p><Chips options={TOP_OPTIONS} value={params.top} onChange={v => set('top', v)} /></div>
+                    <div><p className="text-[11px] text-gray-500 mb-1.5">Parte de abajo</p><Chips options={BOTTOM_OPTIONS} value={params.bottom} onChange={v => set('bottom', v)} /></div>
+                    <div><p className="text-[11px] text-gray-500 mb-1.5">Calzado</p><Chips options={SHOE_OPTIONS} value={params.shoes} onChange={v => set('shoes', v)} /></div>
+                    {params.top !== 'none' && <ColorRow label="Color de la parte de arriba" value={params.topColor} palette={CLOTH_COLORS} onChange={v => set('topColor', v)} />}
+                    <ColorRow label="Color de la parte de abajo" value={params.bottomColor} palette={CLOTH_COLORS} onChange={v => set('bottomColor', v)} />
+                    <ColorRow label="Color de acento (cintura y bordes)" value={params.accentColor} palette={CLOTH_COLORS} onChange={v => set('accentColor', v)} />
+                    {params.shoes === 'sneakers' && <ColorRow label="Color de los tenis" value={params.shoeColor} palette={CLOTH_COLORS} onChange={v => set('shoeColor', v)} />}
+                  </div>
                 </div>
               )}
             </div>

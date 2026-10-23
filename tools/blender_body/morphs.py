@@ -12,9 +12,12 @@ SX0 = B.shoulder_x(P0)
 CA, SA = math.cos(B.ARM_TILT), math.sin(B.ARM_TILT)
 CL, SL = math.cos(B.LEG_TILT), math.sin(B.LEG_TILT)
 ZONES = ['chest', 'back', 'delts', 'arms', 'abs', 'glutes', 'quads', 'hams', 'calves']
-HEAD_PARTS = {'Head', 'EyeWhite', 'Iris', 'Brows', 'Lips', 'HairM', 'HairF'}
-HEAD_C = np.array([0.0, 1.655, 0.0])
-WIDEN_DETAIL = 1.25
+HEAD_PARTS = {'Head', 'EyeWhite', 'Iris', 'Pupil', 'Brows', 'Lips'}
+
+
+def is_head(name): return name in HEAD_PARTS or name.startswith('Hair_')
+HEAD_C = np.array([0.0, 1.648, 0.0])
+WIDEN_DETAIL = 1.1
 
 
 def b2j_pos(co):  # Blender (x, y, z) -> JS (x, y=z, z=-y)
@@ -132,6 +135,23 @@ def compute_keys(Pv, Nv, is_head_part=False):
         al[:, 0] += f['wext'] * side * (-dyl * SA)
         al[:, 1] += f['wext'] * (dyl * CA)
     K['armLen'] = al
+
+    # ---------------- rasgos del rostro (solo piezas de la cabeza) ----------------
+    if is_head_part:
+        cy = HEAD_C[1]
+        K['face_w'] = np.stack([x * 0.10, np.zeros(N), np.zeros(N)], 1)
+        wj = smooth01((cy - 0.015 - y) / 0.05)
+        K['jaw'] = np.stack([x * 0.20 * wj, np.zeros(N), np.zeros(N)], 1)
+        nc = np.array([0.0, cy - 0.026, 0.10])
+        wn = np.exp(-(((x - nc[0]) / 0.030) ** 2 + ((y - nc[1]) / 0.034) ** 2 + ((z - nc[2]) / 0.030) ** 2))
+        K['nose'] = (Pv - nc) * 0.5 * wn[:, None]
+        lc = np.array([0.0, cy - 0.066, 0.092])
+        wl = np.exp(-(((x - lc[0]) / 0.034) ** 2 + ((y - lc[1]) / 0.016) ** 2 + ((z - lc[2]) / 0.022) ** 2))
+        K['lips'] = np.stack([np.zeros(N), (y - lc[1]) * 0.7 * wl, (z - lc[2]) * 0.45 * wl + 0.003 * wl], 1)
+        side = np.where(x >= 0, 1.0, -1.0)
+        ec = np.stack([side * 0.032, np.full(N, cy + 0.016), np.full(N, 0.088)], 1)
+        we = np.exp(-(np.linalg.norm(Pv - ec, axis=1) / 0.020) ** 2)
+        K['eyes'] = (Pv - ec) * 0.35 * we[:, None]
 
     # ---------------- musculos (campos anatomicos) ----------------
     acc = {}

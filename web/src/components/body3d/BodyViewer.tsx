@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { AlertTriangle } from 'lucide-react'
 import {
   buildBody, createMaterials, disposeGroup, disposeMaterials, lerpInto, renderDistance, setSkinColor, toRender,
@@ -53,6 +54,8 @@ export default function BodyViewer({ params, yaw, onYawChange, highlight = '', c
       return
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    renderer.toneMapping = THREE.NeutralToneMapping
+    renderer.toneMappingExposure = 1.0
     renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab'
     mount.appendChild(renderer.domElement)
 
@@ -61,12 +64,16 @@ export default function BodyViewer({ params, yaw, onYawChange, highlight = '', c
     camera.position.set(0, 0.98, 4.9)
     camera.lookAt(0, 0.92, 0)
 
-    // Iluminación suave tipo estudio
-    scene.add(new THREE.HemisphereLight('#ffffff', '#b8c8de', 1.15))
-    const key = new THREE.DirectionalLight('#ffffff', 1.9)
+    // Iluminación de estudio: ambiente (reflejos suaves) + luz principal + contraluz
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environment = envTex
+    scene.environmentIntensity = 0.38
+    scene.add(new THREE.HemisphereLight('#ffffff', '#b8c8de', 0.7))
+    const key = new THREE.DirectionalLight('#fff4e8', 1.7)
     key.position.set(2.2, 3.2, 3.5)
     scene.add(key)
-    const rim = new THREE.DirectionalLight('#9fd4ff', 0.9)
+    const rim = new THREE.DirectionalLight('#9fd4ff', 1.1)
     rim.position.set(-3, 2, -3)
     scene.add(rim)
 
@@ -199,6 +206,7 @@ export default function BodyViewer({ params, yaw, onYawChange, highlight = '', c
       platform.geometry.dispose(); (platform.material as THREE.Material).dispose()
       shadow.geometry.dispose(); (shadow.material as THREE.Material).dispose(); shadowTex.dispose()
       disposeMaterials(mats)
+      envTex.dispose(); pmrem.dispose()
       renderer.dispose()
       renderer.forceContextLoss()
       if (el.parentNode === mount) mount.removeChild(el)

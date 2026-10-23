@@ -32,7 +32,30 @@ export interface BodyParams {
   legLen: number // largo de piernas (50 = proporcional)
   zChest: number; zBack: number; zDelts: number; zArms: number
   zAbs: number; zGlutes: number; zQuads: number; zCalves: number
+  // Rasgos del rostro (50 = neutro)
+  faceW: number; jaw: number; nose: number; lips: number; eyes: number
+  // Estilo
+  hair: HairStyle; hairColor: string; eyeColor: string
+  top: TopStyle; bottom: BottomStyle; shoes: ShoeStyle
+  topColor: string; bottomColor: string; accentColor: string; shoeColor: string
 }
+
+export type HairStyle = 'short' | 'buzz' | 'long' | 'ponytail' | 'bun' | 'curly' | 'bald'
+export type TopStyle = 'none' | 'bra' | 'tank'
+export type BottomStyle = 'shorts' | 'leggings' | 'boxer'
+export type ShoeStyle = 'sneakers' | 'none'
+
+export const HAIR_OPTIONS: { id: HairStyle; label: string }[] = [
+  { id: 'short', label: 'Corto' }, { id: 'buzz', label: 'Rapado' }, { id: 'long', label: 'Largo' },
+  { id: 'ponytail', label: 'Coleta' }, { id: 'bun', label: 'Chongo' }, { id: 'curly', label: 'Rizado' }, { id: 'bald', label: 'Sin pelo' },
+]
+export const TOP_OPTIONS: { id: TopStyle; label: string }[] = [{ id: 'none', label: 'Sin top' }, { id: 'bra', label: 'Top deportivo' }, { id: 'tank', label: 'Playera' }]
+export const BOTTOM_OPTIONS: { id: BottomStyle; label: string }[] = [{ id: 'shorts', label: 'Short' }, { id: 'leggings', label: 'Leggings' }, { id: 'boxer', label: 'Bóxer' }]
+export const SHOE_OPTIONS: { id: ShoeStyle; label: string }[] = [{ id: 'sneakers', label: 'Tenis' }, { id: 'none', label: 'Descalzo' }]
+export const HAIR_COLORS = ['#17110d', '#3a2a20', '#6b4a2f', '#a9743d', '#d8b26a', '#b4332a', '#8a8d92', '#efe7d4']
+export const EYE_COLORS = ['#3b2a1d', '#5a3d2b', '#2f6f9f', '#4f8a5b', '#7a7f86', '#1c1c1c']
+export const CLOTH_COLORS = ['#00a8e8', '#27407a', '#111827', '#e11d48', '#16a34a', '#f59e0b', '#7c3aed', '#f3f4f6']
+export const STYLE_KEYS = ['hair', 'hairColor', 'eyeColor', 'top', 'bottom', 'shoes', 'topColor', 'bottomColor', 'accentColor', 'shoeColor', 'skin', 'heightCm', 'faceW', 'jaw', 'nose', 'lips', 'eyes'] as const
 
 export const SKIN_TONES = ['#f6d5bd', '#ecc4a3', '#d9a47c', '#b97a54', '#8a5535', '#5e3a24']
 export const HEIGHT_MIN = 140
@@ -58,6 +81,10 @@ export const defaultParams = (gender: Gender = 'male'): BodyParams => ({
   shoulders: 50, chest: 50, waist: 50, hips: 50, arms: 50, legs: 50,
   armLen: 50, legLen: 50,
   zChest: 50, zBack: 50, zDelts: 50, zArms: 50, zAbs: 50, zGlutes: 50, zQuads: 50, zCalves: 50,
+  faceW: 50, jaw: 50, nose: 50, lips: 50, eyes: 50,
+  hair: gender === 'male' ? 'short' : 'long', hairColor: '#3a2a20', eyeColor: '#5a3d2b',
+  top: gender === 'male' ? 'none' : 'bra', bottom: gender === 'male' ? 'shorts' : 'leggings', shoes: 'sneakers',
+  topColor: '#00a8e8', bottomColor: '#27407a', accentColor: '#f3f4f6', shoeColor: '#f3f4f6',
 })
 
 /** Completa campos faltantes (registros guardados antes de agregar nuevas opciones). */
@@ -71,6 +98,15 @@ export function normalizeParams(p: Partial<BodyParams>): BodyParams {
   return out as unknown as BodyParams
 }
 
+/** Cambia de género conservando lo personalizado: solo cambia el peinado/ropa si aún eran los de fábrica. */
+export function switchGender(p: BodyParams, g: Gender): BodyParams {
+  if (p.gender === g) return p
+  const o = defaultParams(p.gender), n = defaultParams(g)
+  const q = { ...p, gender: g } as BodyParams
+  for (const k of ['hair', 'top', 'bottom'] as const) if (p[k] === o[k]) (q as unknown as Record<string, unknown>)[k] = n[k]
+  return q
+}
+
 export interface Preset { id: string; label: string; values: Partial<BodyParams> }
 export const PRESETS: Preset[] = [
   { id: 'slim', label: 'Delgado', values: { fat: 10, muscle: 12 } },
@@ -82,7 +118,9 @@ export const PRESETS: Preset[] = [
   { id: 'overweight', label: 'Sobrepeso', values: { fat: 82, muscle: 12, waist: 76, hips: 62 } },
 ]
 export function applyPreset(base: BodyParams, preset: Preset): BodyParams {
-  return { ...defaultParams(base.gender), skin: base.skin, heightCm: base.heightCm, ...preset.values }
+  const keep: Record<string, unknown> = {}
+  for (const k of STYLE_KEYS) keep[k] = base[k]
+  return { ...defaultParams(base.gender), ...keep, ...preset.values } as BodyParams
 }
 
 // ── Estimaciones visuales (orientativas, no son una medición clínica) ────────
@@ -97,9 +135,15 @@ export const muscleLabel = (p: BodyParams) =>
 const NUM_KEYS = [
   'g', 'heightCm', 'fat', 'muscle', 'shoulders', 'chest', 'waist', 'hips', 'arms', 'legs', 'armLen', 'legLen',
   'zChest', 'zBack', 'zDelts', 'zArms', 'zAbs', 'zGlutes', 'zQuads', 'zCalves', 'r', 'gr', 'b', 'hl',
+  'faceW', 'jaw', 'nose', 'lips', 'eyes',
 ] as const
 type NumKey = (typeof NUM_KEYS)[number]
-export type RenderState = Record<NumKey, number> & { hlKey: ZoneKey | '' }
+export interface StyleState {
+  hair: HairStyle; hairColor: string; eyeColor: string
+  top: TopStyle; bottom: BottomStyle; shoes: ShoeStyle
+  topColor: string; bottomColor: string; accentColor: string; shoeColor: string
+}
+export type RenderState = Record<NumKey, number> & { hlKey: ZoneKey | ''; style: StyleState; styleSig: string }
 
 export function toRender(p: BodyParams, highlight: ZoneKey | '' = ''): RenderState {
   const c = new THREE.Color(SKIN_TONES[Math.min(Math.max(p.skin, 0), SKIN_TONES.length - 1)])
@@ -111,18 +155,27 @@ export function toRender(p: BodyParams, highlight: ZoneKey | '' = ''): RenderSta
     zChest: p.zChest, zBack: p.zBack, zDelts: p.zDelts, zArms: p.zArms,
     zAbs: p.zAbs, zGlutes: p.zGlutes, zQuads: p.zQuads, zCalves: p.zCalves,
     r: c.r, gr: c.g, b: c.b,
+    faceW: p.faceW, jaw: p.jaw, nose: p.nose, lips: p.lips, eyes: p.eyes,
     hl: highlight ? 1 : 0, hlKey: highlight,
+    style: styleOf(p), styleSig: styleSigOf(p),
   }
 }
+const styleOf = (p: BodyParams): StyleState => ({
+  hair: p.hair, hairColor: p.hairColor, eyeColor: p.eyeColor, top: p.top, bottom: p.bottom, shoes: p.shoes,
+  topColor: p.topColor, bottomColor: p.bottomColor, accentColor: p.accentColor, shoeColor: p.shoeColor,
+})
+const styleSigOf = (p: BodyParams) => JSON.stringify(styleOf(p))
 
 const SCALE: Partial<Record<NumKey, number>> = { g: 1, heightCm: 70, r: 1, gr: 1, b: 1, hl: 1 }
 export function renderDistance(a: RenderState, b: RenderState): number {
+  if (a.styleSig !== b.styleSig) return 1
   let d = 0
   for (const k of NUM_KEYS) d = Math.max(d, Math.abs(a[k] - b[k]) / (SCALE[k] ?? 100))
   return d
 }
 export function lerpInto(cur: RenderState, target: RenderState, k: number) {
   for (const key of NUM_KEYS) cur[key] += (target[key] - cur[key]) * k
+  cur.style = target.style; cur.styleSig = target.styleSig
   if (target.hlKey) cur.hlKey = target.hlKey
   else if (cur.hl < 0.02) cur.hlKey = ''
 }
@@ -499,7 +552,7 @@ function loft(rings: Ring[], seg: number, o: LoftOpts = {}): THREE.BufferGeometr
 
 // ── Materiales ───────────────────────────────────────────────────────────────
 export interface BodyMaterials {
-  skin: THREE.MeshStandardMaterial
+  skin: THREE.MeshPhysicalMaterial
   skinFlat: THREE.MeshStandardMaterial
   shorts: THREE.MeshStandardMaterial
   top: THREE.MeshStandardMaterial
@@ -507,23 +560,40 @@ export interface BodyMaterials {
   dark: THREE.MeshStandardMaterial
   white: THREE.MeshStandardMaterial
   lip: THREE.MeshStandardMaterial
+  eye: THREE.MeshStandardMaterial
+  cloth: THREE.MeshStandardMaterial
+  shoe: THREE.MeshStandardMaterial
+  sole: THREE.MeshStandardMaterial
 }
 export function createMaterials(): BodyMaterials {
   return {
-    skin: new THREE.MeshStandardMaterial({ color: SKIN_TONES[1], roughness: 0.58, metalness: 0, vertexColors: true }),
+    // Piel con un leve brillo tipo "gimnasio" y borde suave (sheen) para que no se vea de plástico
+    skin: new THREE.MeshPhysicalMaterial({
+      color: SKIN_TONES[1], roughness: 0.55, metalness: 0, vertexColors: true,
+      clearcoat: 0.08, clearcoatRoughness: 0.5, sheen: 0.3, sheenRoughness: 0.6, sheenColor: new THREE.Color('#ffc9ad'),
+    }),
     skinFlat: new THREE.MeshStandardMaterial({ color: SKIN_TONES[1], roughness: 0.58, metalness: 0 }),
     shorts: new THREE.MeshStandardMaterial({ color: '#27407a', roughness: 0.8, metalness: 0 }),
     top: new THREE.MeshStandardMaterial({ color: '#00a8e8', roughness: 0.75, metalness: 0 }),
-    hair: new THREE.MeshStandardMaterial({ color: '#33241b', roughness: 0.85, metalness: 0 }),
-    dark: new THREE.MeshStandardMaterial({ color: '#1b1f2a', roughness: 0.5, metalness: 0 }),
-    white: new THREE.MeshStandardMaterial({ color: '#f4f4f4', roughness: 0.4, metalness: 0 }),
-    lip: new THREE.MeshStandardMaterial({ color: '#b86b63', roughness: 0.6, metalness: 0 }),
+    hair: new THREE.MeshStandardMaterial({ color: '#3a2a20', roughness: 0.62, metalness: 0.05, side: THREE.DoubleSide }),
+    dark: new THREE.MeshStandardMaterial({ color: '#0b0d12', roughness: 0.3, metalness: 0 }),
+    white: new THREE.MeshStandardMaterial({ color: '#f6f6f4', roughness: 0.25, metalness: 0 }),
+    lip: new THREE.MeshStandardMaterial({ color: '#b86b63', roughness: 0.5, metalness: 0 }),
+    eye: new THREE.MeshStandardMaterial({ color: '#5a3d2b', roughness: 0.2, metalness: 0 }),
+    // Prenda con color por vértice (color principal + color de acento en cintura/ribetes)
+    cloth: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.82, metalness: 0, vertexColors: true }),
+    shoe: new THREE.MeshStandardMaterial({ color: '#f3f4f6', roughness: 0.6, metalness: 0 }),
+    sole: new THREE.MeshStandardMaterial({ color: '#e9ecef', roughness: 0.7, metalness: 0 }),
   }
 }
 export function disposeMaterials(m: BodyMaterials) { Object.values(m).forEach(x => x.dispose()) }
 export function setSkinColor(m: BodyMaterials, s: RenderState) {
   m.skin.color.setRGB(s.r, s.gr, s.b)
   m.skinFlat.color.setRGB(s.r, s.gr, s.b)
+}
+/** Aplica los colores de estilo (pelo, ojos, tenis) a los materiales. */
+export function setStyleColors(m: BodyMaterials, st: StyleState) {
+  m.hair.color.set(st.hairColor); m.eye.color.set(st.eyeColor); m.shoe.color.set(st.shoeColor)
 }
 
 function ell(mat: THREE.Material, rx: number, ry: number, rz: number, x: number, y: number, z: number, w = 20, h = 14) {
