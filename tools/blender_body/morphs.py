@@ -16,7 +16,7 @@ HEAD_PARTS = {'Head', 'EyeWhite', 'Iris', 'Pupil', 'Brows', 'Lips'}
 
 
 def is_head(name): return name in HEAD_PARTS or name.startswith('Hair_')
-HEAD_C = np.array([0.0, 1.648, 0.0])
+HEAD_C = np.array([0.0, 1.628, 0.0])
 WIDEN_DETAIL = 1.1
 
 

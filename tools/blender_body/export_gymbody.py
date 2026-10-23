@@ -37,102 +37,100 @@ def tris_of(ob):
 
 
 # ---------------------------------------------------------------- prendas derivadas de la piel
-def clip_garment(P, tri, vmask, ylo, yhi):
-    """Recorta la piel entre dos planos y devuelve vertices como interpolacion de 2 vertices de piel (bordes rectos)."""
+def clip_poly(poly, corner_vals, val, above):
+    """poly: pesos (w0,w1,w2) respecto a las esquinas del triangulo original; recorta contra un plano."""
+    cv = lambda w: w[0] * corner_vals[0] + w[1] * corner_vals[1] + w[2] * corner_vals[2] - val
+    out = []; n = len(poly)
+    for k in range(n):
+        a, b = poly[k], poly[(k + 1) % n]
+        ca, cb = cv(a), cv(b)
+        if not above: ca, cb = -ca, -cb
+        ina, inb = ca >= 0, cb >= 0
+        if ina: out.append(a)
+        if ina != inb:
+            u = ca / (ca - cb)
+            out.append(tuple(a[i] + u * (b[i] - a[i]) for i in range(3)))
+    return out
+
+
+def clip_regions(P, tri, vmask, planes):
+    """Recorta la piel con varios planos (axis, valor, conservar_arriba). Cada vertice nuevo es una mezcla de hasta 3 vertices de piel."""
     tri = tri[vmask[tri].all(1)]
-    y = P[:, 1]
-    ty = y[tri]
-    inside = (ty.min(1) >= ylo) & (ty.max(1) <= yhi)
-    cross = ((ty.max(1) > ylo) & (ty.min(1) < ylo)) | ((ty.max(1) > yhi) & (ty.min(1) < yhi))
-    cross &= ~inside
-    # filtro: para que tengan algo dentro
-    polys = [[(int(a), int(a), 0.0) for a in t] for t in tri[inside]]
-
-    def yval(d): i, j, t = d; return (1 - t) * y[i] + t * y[j]
-    def clip(poly, plane, keep_above):
-        out = []
-        n = len(poly)
-        for k in range(n):
-            a, b = poly[k], poly[(k + 1) % n]
-            ya, yb = yval(a) - plane, yval(b) - plane
-            if not keep_above: ya, yb = -ya, -yb
-            ina, inb = ya >= 0, yb >= 0
-            if ina: out.append(a)
-            if ina != inb:
-                u = ya / (ya - yb)
-                # interpolar descriptor a -> b (ambos pueden ser vertices originales o de borde)
-                out.append(('mix', a, b, u))
-        return out
-    def resolve(poly):
-        """Convierte descriptores 'mix' en (i,j,t) cuando a y b comparten una arista original."""
-        res = []
-        for d in poly:
-            if d[0] == 'mix':
-                _, a, b, u = d
-                # a y b son de la forma (i,j,t); el punto cortado esta sobre la arista original entre sus vertices base
-                ai, aj, at = a; bi, bj, bt = b
-                if at == 0.0 and bt == 0.0:
-                    res.append((ai, bi, u))
-                else:
-                    # arista ya recortada: re-expresar sobre la arista original base
-                    base = {ai, aj, bi, bj}
-                    i, j = sorted(base)[0], sorted(base)[-1]
-                    va = (1 - at) * y[ai] + at * y[aj]; vb = (1 - bt) * y[bi] + bt * y[bj]
-                    yy = (1 - u) * va + u * vb
-                    t2 = (yy - y[i]) / (y[j] - y[i]) if y[j] != y[i] else 0.0
-                    res.append((i, j, float(np.clip(t2, 0, 1))))
-            else: res.append(d)
-        return res
-    for t in tri[cross]:
-        poly = [(int(a), int(a), 0.0) for a in t]
-        for plane, above in ((ylo, True), (yhi, False)):
-            if len(poly) < 3: break
-            poly = resolve(clip(poly, plane, above))
-        if len(poly) >= 3: polys.append(poly)
-    # tabla de vertices unica
+    cur = np.arange(len(tri)); polys = []
+    for nrm, val, above in planes:
+        nrm = np.asarray(nrm, float)
+        proj = P @ nrm
+        newp = []
+        for ti, poly in polys:
+            q = clip_poly(poly, proj[tri[ti]], val, above)
+            if len(q) >= 3: newp.append((ti, q))
+        if len(cur):
+            c = proj[tri[cur]] - val
+            if not above: c = -c
+            inside = (c >= 0).all(1); outside = (c < 0).all(1)
+            for ti in cur[~inside & ~outside]:
+                q = clip_poly([(1, 0, 0), (0, 1, 0), (0, 0, 1)], proj[tri[ti]], val, above)
+                if len(q) >= 3: newp.append((ti, q))
+            cur = cur[inside]
+        polys = newp
     table, keys, faces = [], {}, []
-    def vid(d):
-        i, j, t = d
-        if t == 0.0 or i == j: key = (i,); desc = (i, i, 0.0)
-        elif t == 1.0: key = (j,); desc = (j, j, 0.0)
-        else:
-            if i > j: i, j, t = j, i, 1 - t
-            key = (i, j, round(t, 4)); desc = (i, j, t)
-        if key not in keys: keys[key] = len(table); table.append(desc)
-        return keys[key]
-    for poly in polys:
-        ids = [vid(d) for d in poly]
+    def vid(ti, w):
+        pairs = tuple(sorted((int(tri[ti][k]), round(float(w[k]), 4)) for k in range(3) if w[k] > 1e-4))
+        if pairs not in keys: keys[pairs] = len(table); table.append(pairs)
+        return keys[pairs]
+    for ti in cur: faces.append(tuple(vid(ti, w) for w in ((1, 0, 0), (0, 1, 0), (0, 0, 1))))
+    for ti, poly in polys:
+        ids = [vid(ti, w) for w in poly]
         for k in range(1, len(ids) - 1): faces.append((ids[0], ids[k], ids[k + 1]))
-    tb = np.array(table)
-    src = tb[:, :2].astype(np.uint16); w = tb[:, 2].astype(np.float32)
-    return src, w, np.array(faces, dtype=np.int64)
+    nv = len(table)
+    src = np.zeros((nv, 3), np.uint16); w = np.zeros((nv, 3), np.float32)
+    for i, pairs in enumerate(table):
+        vs = [p_[0] for p_ in pairs]; ws = [p_[1] for p_ in pairs]; tot = sum(ws); ws = [x / tot for x in ws]
+        while len(vs) < 3: vs.append(vs[0]); ws.append(0.0)
+        src[i] = vs[:3]; w[i] = ws[:3]
+    return src, w, np.array(faces, np.int64).reshape(-1, 3)
 
 
-def angdiff(a, b): return np.abs(((a - b) % 360 + 540) % 360 - 180)
+def merge_regions(items):
+    srcs, ws, fs, off = [], [], [], 0
+    for src, w, f in items:
+        if len(f) == 0: continue
+        srcs.append(src); ws.append(w); fs.append(f + off); off += len(src)
+    if not srcs: return np.zeros((0, 3), np.uint16), np.zeros((0, 3), np.float32), np.zeros((0, 3), np.int64)
+    return np.concatenate(srcs), np.concatenate(ws), np.concatenate(fs)
+
+
+def Yp(lo, hi): return [((0, 1, 0), lo, True), ((0, 1, 0), hi, False)]
+def Xr(lo, hi): return [((1, 0, 0), lo, True), ((1, 0, 0), hi, False)]
+
+# Panel lateral de los leggings: plano inclinado que sigue el contorno externo de la pierna (~2.6 cm de ancho)
+STRIPE_N, STRIPE_OFF = 0.0314, 0.1268
+RIGHT_PANEL = [((1, -STRIPE_N, 0), STRIPE_OFF, True)]
+LEFT_PANEL = [((-1, -STRIPE_N, 0), STRIPE_OFF, True)]
+RIGHT_INNER = [((1, -STRIPE_N, 0), STRIPE_OFF, False)]
+LEFT_INNER = [((-1, -STRIPE_N, 0), STRIPE_OFF, False)]
 
 
 def garments(Ps):
-    """Cada prenda se divide en franjas (color principal / acento) con bordes rectos."""
-    P0 = B.P()
-    rx = lambda y: B.torso_at(P0, np.clip(y, B.TORSO_Y0, B.TORSO_Y1))[0]
-    torso_mask = lambda P: (np.abs(P[:, 0]) <= rx(P[:, 1]) + 0.004) | (P[:, 1] < 0.86)
-    legs_mask = lambda P: (np.abs(P[:, 0]) <= 0.19) & (P[:, 1] <= 1.02)
-    def tank_mask(P):
-        x, y = np.abs(P[:, 0]), P[:, 1]
-        return ((x <= rx(y) + 0.004) & (y <= 1.31)) | ((y > 1.31) & (x >= 0.058) & (x <= 0.118) & (y <= 1.43))
+    """Cada prenda son piezas (principal / acento) con bordes rectos recortados por planos."""
     flat = lambda v: (lambda P: np.full(len(P), v))
+    S = lambda regions, mask, accent=False: dict(regions=regions, mask=mask, accent=accent)
     return [
-        dict(name='G_bra', slot='top', opt='bra', mask=torso_mask, infl=flat(0.0055),
-             segs=[(1.185, 1.205, True), (1.205, 1.295, False), (1.295, 1.315, True)]),
-        dict(name='G_tank', slot='top', opt='tank', mask=tank_mask, infl=flat(0.0055),
-             segs=[(0.985, 1.012, True), (1.012, 1.43, False)]),
-        dict(name='G_shorts', slot='bottom', opt='shorts', mask=legs_mask,
-             infl=lambda P: 0.006 + np.clip(0.82 - P[:, 1], 0, None) * 0.10,
-             segs=[(0.640, 0.668, True), (0.668, 0.972, False), (0.972, 1.010, True)]),
-        dict(name='G_leggings', slot='bottom', opt='leggings', mask=legs_mask, infl=flat(0.0035),
-             segs=[(0.075, 0.100, True), (0.100, 0.968, False), (0.968, 1.010, True)]),
-        dict(name='G_boxer', slot='bottom', opt='boxer', mask=legs_mask, infl=flat(0.006),
-             segs=[(0.720, 0.975, False), (0.975, 1.010, True)]),
+        dict(name='G_bra', slot='top', opt='bra', infl=flat(0.0055), pieces=[
+            S([Yp(1.185, 1.205)], 'torso', True), S([Yp(1.205, 1.295)], 'torso'), S([Yp(1.295, 1.315)], 'torso', True),
+            S([Yp(1.314, 1.43) + Xr(0.060, 0.090), Yp(1.314, 1.43) + Xr(-0.090, -0.060)], 'torso')]),
+        dict(name='G_tank', slot='top', opt='tank', infl=flat(0.0055), pieces=[
+            S([Yp(0.985, 1.012)], 'torso', True), S([Yp(1.012, 1.30)], 'torso'),
+            S([Yp(1.299, 1.43) + Xr(0.058, 0.098), Yp(1.299, 1.43) + Xr(-0.098, -0.058)], 'torso')]),
+        dict(name='G_shorts', slot='bottom', opt='shorts', infl=lambda P: 0.006 + np.clip(0.82 - P[:, 1], 0, None) * 0.10, pieces=[
+            S([Yp(0.640, 0.668)], 'legs', True), S([Yp(0.668, 0.972)], 'legs'), S([Yp(0.972, 1.010)], 'legs', True)]),
+        dict(name='G_leggings', slot='bottom', opt='leggings', infl=flat(0.0035), pieces=[
+            S([Yp(0.075, 0.100)], 'legs', True), S([Yp(0.968, 1.010)], 'legs', True),
+            S([Yp(0.100, 0.968) + RIGHT_INNER + LEFT_INNER], 'legs'),
+            S([Yp(0.90, 0.968) + RIGHT_PANEL, Yp(0.90, 0.968) + LEFT_PANEL], 'legs'),
+            S([Yp(0.100, 0.90) + RIGHT_PANEL, Yp(0.100, 0.90) + LEFT_PANEL], 'legs', True)]),
+        dict(name='G_boxer', slot='bottom', opt='boxer', infl=flat(0.006), pieces=[
+            S([Yp(0.720, 0.975)], 'legs'), S([Yp(0.975, 1.010)], 'legs', True)]),
     ]
 
 
@@ -160,17 +158,20 @@ def export_body(path):
         parts.append(entry)
         if name == 'Skin': skin = (Pv, tri)
     Pv, tri = skin
+    P0 = B.P()
+    rx = lambda y: B.torso_at(P0, np.clip(y, B.TORSO_Y0, B.TORSO_Y1))[0]
+    masks = {'torso': (np.abs(Pv[:, 0]) <= rx(Pv[:, 1]) + 0.004) | (Pv[:, 1] < 0.86),
+             'legs': (np.abs(Pv[:, 0]) <= 0.19) & (Pv[:, 1] <= 1.02)}
     for g in garments(Pv):
-        vm = g['mask'](Pv)
-        for si, (ylo, yhi, accent) in enumerate(g['segs']):
-            src, w, faces = clip_garment(Pv, tri, vm, ylo, yhi)
+        for si, pc in enumerate(g['pieces']):
+            src, w, faces = merge_regions([clip_regions(Pv, tri, masks[pc['mask']], planes) for planes in pc['regions']])
             if len(faces) == 0: continue
-            Pd = (1 - w[:, None]) * Pv[src[:, 0]] + w[:, None] * Pv[src[:, 1]]
+            Pd = sum(w[:, k:k + 1] * Pv[src[:, k]] for k in range(3))
             infl = g['infl'](Pd).astype(np.float32)
-            parts.append(dict(name=f"{g['name']}_{si}", mat='Cloth', derived='Skin', vis=f"{g['slot']}:{g['opt']}", accent=int(accent),
-                              nv=int(len(src)), nt=int(len(faces)), src=blob.add(src.ravel()), w=blob.add(w), infl=blob.add(infl),
+            parts.append(dict(name=f"{g['name']}_{si}", mat='Cloth', derived='Skin', vis=f"{g['slot']}:{g['opt']}", accent=int(pc['accent']),
+                              nv=int(len(src)), nt=int(len(faces)), src=blob.add(src.ravel()), w=blob.add(w.ravel()), infl=blob.add(infl),
                               idx=blob.add(faces.astype(np.uint16).ravel())))
-    head = dict(version=2, deltaScale=DELTA_SCALE, parts=parts, topY=B.TOP_Y, legLen=B.LEG_LEN)
+    head = dict(version=2, deltaScale=DELTA_SCALE, parts=parts, topY=B.TOP_Y, legLen=B.LEG_LEN, headY=float(morphs.HEAD_C[1]))
     hj = json.dumps(head, separators=(',', ':')).encode()
     pad = (-(8 + 4 + len(hj))) % 4
     os.makedirs(os.path.dirname(path), exist_ok=True)

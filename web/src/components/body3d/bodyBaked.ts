@@ -6,7 +6,7 @@ import { setStyleColors } from './bodyModel'
 // derivadas de la piel. En cada cambio de slider se mezclan los targets activos en CPU, se recalculan
 // normales y un sombreado de pliegues (curvatura) que da volumen a los músculos.
 
-export const BAKED_URL = '/models/gymbody.bin?v=2'
+export const BAKED_URL = '/models/gymbody.bin?v=4'
 
 interface KeyData { n: string; c: number; idx: Uint16Array; val: Int16Array }
 interface PartData {
@@ -14,7 +14,7 @@ interface PartData {
   base?: Float32Array; index: Uint16Array; keys: KeyData[]
   derived?: string; src?: Uint16Array; w?: Float32Array; infl?: Float32Array; accent?: boolean
 }
-export interface BakedBody { parts: PartData[]; deltaScale: number; topY: number; legLen: number }
+export interface BakedBody { parts: PartData[]; deltaScale: number; topY: number; legLen: number; headY: number }
 
 let cache: Promise<BakedBody> | null = null
 
@@ -41,8 +41,8 @@ function parseBaked(buf: ArrayBuffer): BakedBody {
     }
     if (p.derived) {
       part.derived = p.derived
-      part.src = new Uint16Array(buf, blob + p.src, p.nv * 2)
-      part.w = new Float32Array(buf, blob + p.w, p.nv)
+      part.src = new Uint16Array(buf, blob + p.src, p.nv * 3)
+      part.w = new Float32Array(buf, blob + p.w, p.nv * 3)
       part.infl = new Float32Array(buf, blob + p.infl, p.nv)
       part.accent = !!p.accent
     } else {
@@ -53,7 +53,7 @@ function parseBaked(buf: ArrayBuffer): BakedBody {
     }
     return part
   })
-  return { parts, deltaScale: head.deltaScale, topY: head.topY, legLen: head.legLen }
+  return { parts, deltaScale: head.deltaScale, topY: head.topY, legLen: head.legLen, headY: head.headY ?? 1.628 }
 }
 
 // ── Sliders → peso de cada morph target (misma lógica que tools/blender_body/morphs.py) ──
@@ -93,6 +93,7 @@ interface Item {
   geo: THREE.BufferGeometry
   pos: Float32Array
   colors?: Float32Array
+  tone?: Float32Array
   masks?: Partial<Record<ZoneKey, Float32Array>>
   lastSig: string
   adjStart?: Uint32Array; adjIdx?: Uint32Array; aoK?: number; ao?: Float32Array
@@ -122,7 +123,7 @@ export class BakedInstance {
         item.colors = new Float32Array(part.nv * 3).fill(1)
         geo.setAttribute('color', new THREE.BufferAttribute(item.colors, 3).setUsage(THREE.DynamicDrawUsage))
       }
-      if (part.mat === 'Skin') this.buildAdjacency(item)
+      if (part.mat === 'Skin') { this.buildAdjacency(item); this.buildTone(item) }
       item.mesh = new THREE.Mesh(geo, matMap[part.mat])
       item.mesh.frustumCulled = false
       this.group.add(item.mesh)
@@ -162,6 +163,30 @@ export class BakedInstance {
     }
     const L = sum / Math.max(cnt, 1)
     item.aoK = (part.name === 'Skin' ? 1 : part.name === 'Head' ? 0.45 : 0.35) * 0.0056 / (L * L)
+  }
+
+  /** Detalles de color de la piel que siguen al cuerpo: areolas, rubor en mejillas. */
+  private buildTone(item: Item) {
+    const { part } = item, n = part.nv, b = part.base!
+    const tone = new Float32Array(n * 3).fill(1)
+    const headY = this.data.headY
+    for (let v = 0; v < n; v++) {
+      const x = b[v * 3], y = b[v * 3 + 1], z = b[v * 3 + 2]
+      let r = 1, g = 1, bl = 1
+      if (part.name === 'Skin') {
+        for (const sx of [-1, 1]) {
+          const d = Math.hypot(x - sx * 0.090, y - 1.205)
+          if (z > 0.04 && d < 0.0135) { const t = 1 - d / 0.0135; r *= 1 - 0.26 * t; g *= 1 - 0.44 * t; bl *= 1 - 0.40 * t }
+        }
+      } else if (part.name === 'Head') {
+        for (const sx of [-1, 1]) {
+          const d = Math.hypot(x - sx * 0.042, y - (headY - 0.030), (z - 0.070) * 1.2)
+          if (z > 0.04 && d < 0.036) { const t = Math.pow(1 - d / 0.036, 1.4) * 0.5; g *= 1 - 0.15 * t; bl *= 1 - 0.17 * t }
+        }
+      }
+      tone[v * 3] = r; tone[v * 3 + 1] = g; tone[v * 3 + 2] = bl
+    }
+    item.tone = tone
   }
 
   private computeAO(item: Item) {
@@ -252,8 +277,8 @@ export class BakedInstance {
         const c = item.colors, ao = item.ao
         for (let v = 0, n = ao.length; v < n; v++) {
           const t = mask ? mask[v] * s.hl * 0.55 : 0
-          const a = ao[v]
-          c[v * 3] = a * (1 - t + 0.30 * t); c[v * 3 + 1] = a * (1 - t + 0.95 * t); c[v * 3 + 2] = a * (1 - t + 1.55 * t)
+          const a = ao[v], tn = item.tone!
+          c[v * 3] = a * tn[v * 3] * (1 - t + 0.30 * t); c[v * 3 + 1] = a * tn[v * 3 + 1] * (1 - t + 0.95 * t); c[v * 3 + 2] = a * tn[v * 3 + 2] * (1 - t + 1.55 * t)
         }
         item.geo.attributes.color.needsUpdate = true
       }
@@ -275,15 +300,16 @@ export class BakedInstance {
         const src = part.src!, w = part.w!, inf = part.infl!
         const cc = part.accent ? acc : main
         for (let i = 0; i < part.nv; i++) {
-          const a = src[i * 2] * 3, b = src[i * 2 + 1] * 3, t = w[i], u = 1 - t, d = i * 3
-          let nx = u * sn[a] + t * sn[b], ny = u * sn[a + 1] + t * sn[b + 1], nz = u * sn[a + 2] + t * sn[b + 2]
+          const k = i * 3, a = src[k] * 3, b = src[k + 1] * 3, c2 = src[k + 2] * 3
+          const w0 = w[k], w1 = w[k + 1], w2 = w[k + 2], d = i * 3
+          let nx = w0 * sn[a] + w1 * sn[b] + w2 * sn[c2], ny = w0 * sn[a + 1] + w1 * sn[b + 1] + w2 * sn[c2 + 1], nz = w0 * sn[a + 2] + w1 * sn[b + 2] + w2 * sn[c2 + 2]
           const nl = 1 / (Math.hypot(nx, ny, nz) || 1); nx *= nl; ny *= nl; nz *= nl
           nor[d] = nx; nor[d + 1] = ny; nor[d + 2] = nz
           const o = inf[i]
-          pos[d] = u * sp[a] + t * sp[b] + nx * o
-          pos[d + 1] = u * sp[a + 1] + t * sp[b + 1] + ny * o
-          pos[d + 2] = u * sp[a + 2] + t * sp[b + 2] + nz * o
-          const shade = 0.9 + 0.1 * (u * sao[a / 3] + t * sao[b / 3])
+          pos[d] = w0 * sp[a] + w1 * sp[b] + w2 * sp[c2] + nx * o
+          pos[d + 1] = w0 * sp[a + 1] + w1 * sp[b + 1] + w2 * sp[c2 + 1] + ny * o
+          pos[d + 2] = w0 * sp[a + 2] + w1 * sp[b + 2] + w2 * sp[c2 + 2] + nz * o
+          const shade = 0.9 + 0.1 * (w0 * sao[src[k]] + w1 * sao[src[k + 1]] + w2 * sao[src[k + 2]])
           col[d] = cc.r * shade; col[d + 1] = cc.g * shade; col[d + 2] = cc.b * shade
         }
         geo.attributes.position.needsUpdate = true

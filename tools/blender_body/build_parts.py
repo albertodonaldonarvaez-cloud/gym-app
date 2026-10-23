@@ -6,7 +6,7 @@ import build_base as bb
 importlib.reload(B); importlib.reload(bb)
 from build_base import Soup, ellipsoid, limb_to_world, j2b, make_object, remesh_object, P0
 
-CY = 1.648  # centro del craneo
+CY = 1.628  # centro del craneo
 
 
 def rotz(a):
@@ -65,6 +65,9 @@ def head_soup():
     for sx in (-1, 1):
         E((sx * 0.0825, CY - 0.012, -0.010), (0.013, 0.030, 0.017), 18, 12)    # orejas
         E((sx * 0.0105, CY - 0.034, 0.097), (0.0070, 0.0075, 0.0075), 14, 10)  # alas de la nariz
+    for sx in (-1, 1):
+        E((sx * 0.032, CY + 0.0240, 0.0850), (0.0120, 0.0052, 0.0068), 18, 10)   # parpado superior
+        E((sx * 0.032, CY + 0.0075, 0.0850), (0.0112, 0.0038, 0.0064), 18, 10)   # parpado inferior
     E((0, CY - 0.002, 0.099), (0.0062, 0.022, 0.010), 14, 10)                  # puente nasal
     E((0, CY - 0.024, 0.099), (0.010, 0.019, 0.014), 18, 12)                   # nariz
     E((0, CY - 0.035, 0.105), (0.0080, 0.0075, 0.0085), 14, 10)                # punta
@@ -140,6 +143,16 @@ def cut_face(V, F, hairline=0.074):
     return V, [tuple(f) for f in F]
 
 
+def clump(V, amp, fa, fy, wave=0.0):
+    """Mechones: ondulacion radial y lateral suave del cabello (la hebra fina la pone el shader)."""
+    V = V.copy(); rel = V - np.array([0, CY, -0.01])
+    ang = np.arctan2(rel[:, 0], rel[:, 2] + 0.04)
+    r = np.linalg.norm(rel, axis=1)[:, None] + 1e-9
+    V += rel / r * (amp * np.sin(ang * fa + V[:, 1] * fy) + 0.5 * amp * np.sin(ang * fa * 0.5 - V[:, 1] * fy * 0.7))[:, None]
+    if wave: V[:, 0] += wave * np.sin(V[:, 1] * 38 + ang * 2.0) * np.clip((CY - V[:, 1]) / 0.12, 0, 1)
+    return V
+
+
 def hair_soups():
     out = {}
     def S_(items, cut=True):
@@ -149,11 +162,11 @@ def hair_soups():
         V, F = s.arrays()
         if cut: V, F = cut_face(V, F)
         return V, F
-    out['short'] = S_([((0, CY + 0.034, -0.026), (0.0968, 0.098, 0.1155)), ((0, CY - 0.012, -0.058), (0.086, 0.068, 0.066))])
+    v, f = S_([((0, CY + 0.034, -0.026), (0.0968, 0.098, 0.1155)), ((0, CY - 0.012, -0.058), (0.086, 0.068, 0.066))]); out['short'] = (clump(v, 0.0025, 16, 18), f)
     out['buzz'] = S_([((0, CY + 0.006, -0.002), (0.0868, 0.1032, 0.1032))], True)
-    out['long'] = S_([((0, CY + 0.034, -0.026), (0.0968, 0.098, 0.1155)), ((0, 1.55, -0.055), (0.122, 0.17, 0.092))])
-    out['curly'] = S_([((0, CY + 0.04, -0.012), (0.125, 0.122, 0.13))])
-    V, F = S_([((0, CY + 0.034, -0.026), (0.0968, 0.098, 0.1155))])
+    v, f = S_([((0, CY + 0.034, -0.026), (0.0968, 0.098, 0.1155)), ((0, CY - 0.09, -0.055), (0.126, 0.19, 0.094))]); out['long'] = (clump(v, 0.004, 14, 16, wave=0.007), f)
+    v, f = S_([((0, CY + 0.04, -0.012), (0.125, 0.122, 0.13))]); out['curly'] = (clump(v, 0.011, 22, 46), f)
+    V, F = S_([((0, CY + 0.034, -0.026), (0.0968, 0.098, 0.1155))]); V = clump(V, 0.0025, 16, 18)
     s = Soup(); s.add(V, F)
     tv, tf = tube([(0, CY + 0.045, -0.095), (0, CY + 0.005, -0.150), (0, CY - 0.07, -0.165), (0, CY - 0.16, -0.150)],
                   [0.028, 0.030, 0.026, 0.012], 14)

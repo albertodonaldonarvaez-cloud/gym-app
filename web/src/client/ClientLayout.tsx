@@ -12,7 +12,7 @@ export default function ClientLayout() {
   return (
     <div className="flex flex-col bg-[#F2F2F7] min-h-screen overscroll-none">
       {/* Main content */}
-      <div className="flex-1 overflow-auto scroll-ios no-scrollbar pb-[82px]">
+      <div className="flex-1 overflow-auto scroll-ios no-scrollbar pb-[calc(104px+env(safe-area-inset-bottom))]">
         <Outlet />
       </div>
 

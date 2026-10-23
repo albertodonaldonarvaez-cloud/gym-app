@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { enhanceMaterial } from './bodyShaders'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelo corporal paramétrico y anatómico, 100% procedural (sin assets externos,
@@ -556,33 +557,43 @@ export interface BodyMaterials {
   skinFlat: THREE.MeshStandardMaterial
   shorts: THREE.MeshStandardMaterial
   top: THREE.MeshStandardMaterial
-  hair: THREE.MeshStandardMaterial
+  hair: THREE.MeshPhysicalMaterial
   dark: THREE.MeshStandardMaterial
-  white: THREE.MeshStandardMaterial
-  lip: THREE.MeshStandardMaterial
-  eye: THREE.MeshStandardMaterial
-  cloth: THREE.MeshStandardMaterial
+  white: THREE.MeshPhysicalMaterial
+  lip: THREE.MeshPhysicalMaterial
+  eye: THREE.MeshPhysicalMaterial
+  cloth: THREE.MeshPhysicalMaterial
   shoe: THREE.MeshStandardMaterial
   sole: THREE.MeshStandardMaterial
 }
 export function createMaterials(): BodyMaterials {
+  const skin = new THREE.MeshPhysicalMaterial({
+    color: SKIN_TONES[1], roughness: 0.52, metalness: 0, vertexColors: true,
+    clearcoat: 0.10, clearcoatRoughness: 0.45, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffc9ad'),
+  })
+  const cloth = new THREE.MeshPhysicalMaterial({
+    color: '#ffffff', roughness: 0.78, metalness: 0, vertexColors: true,
+    sheen: 0.55, sheenRoughness: 0.6, sheenColor: new THREE.Color('#ffffff'),
+  })
+  const hair = new THREE.MeshPhysicalMaterial({
+    color: '#3a2a20', roughness: 0.42, metalness: 0.0, side: THREE.DoubleSide,
+    clearcoat: 0.5, clearcoatRoughness: 0.35, sheen: 0.6, sheenRoughness: 0.4, sheenColor: new THREE.Color('#ffe9d0'),
+  })
+  const shoe = new THREE.MeshStandardMaterial({ color: '#f3f4f6', roughness: 0.55, metalness: 0 })
+  enhanceMaterial(skin, 'skin'); enhanceMaterial(cloth, 'cloth'); enhanceMaterial(hair, 'hair'); enhanceMaterial(shoe, 'shoe')
   return {
-    // Piel con un leve brillo tipo "gimnasio" y borde suave (sheen) para que no se vea de plástico
-    skin: new THREE.MeshPhysicalMaterial({
-      color: SKIN_TONES[1], roughness: 0.55, metalness: 0, vertexColors: true,
-      clearcoat: 0.08, clearcoatRoughness: 0.5, sheen: 0.3, sheenRoughness: 0.6, sheenColor: new THREE.Color('#ffc9ad'),
-    }),
+    skin,
     skinFlat: new THREE.MeshStandardMaterial({ color: SKIN_TONES[1], roughness: 0.58, metalness: 0 }),
     shorts: new THREE.MeshStandardMaterial({ color: '#27407a', roughness: 0.8, metalness: 0 }),
     top: new THREE.MeshStandardMaterial({ color: '#00a8e8', roughness: 0.75, metalness: 0 }),
-    hair: new THREE.MeshStandardMaterial({ color: '#3a2a20', roughness: 0.62, metalness: 0.05, side: THREE.DoubleSide }),
-    dark: new THREE.MeshStandardMaterial({ color: '#0b0d12', roughness: 0.3, metalness: 0 }),
-    white: new THREE.MeshStandardMaterial({ color: '#f6f6f4', roughness: 0.25, metalness: 0 }),
-    lip: new THREE.MeshStandardMaterial({ color: '#b86b63', roughness: 0.5, metalness: 0 }),
-    eye: new THREE.MeshStandardMaterial({ color: '#5a3d2b', roughness: 0.2, metalness: 0 }),
-    // Prenda con color por vértice (color principal + color de acento en cintura/ribetes)
-    cloth: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.82, metalness: 0, vertexColors: true }),
-    shoe: new THREE.MeshStandardMaterial({ color: '#f3f4f6', roughness: 0.6, metalness: 0 }),
+    hair,
+    dark: new THREE.MeshStandardMaterial({ color: '#05060a', roughness: 0.2, metalness: 0 }),
+    // Ojos húmedos: la capa de barniz refleja el entorno y crea el brillo de la mirada
+    white: new THREE.MeshPhysicalMaterial({ color: '#f4f2ee', roughness: 0.18, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05 }),
+    lip: new THREE.MeshPhysicalMaterial({ color: '#a8564f', roughness: 0.38, metalness: 0, clearcoat: 0.4, clearcoatRoughness: 0.3 }),
+    eye: new THREE.MeshPhysicalMaterial({ color: '#5a3d2b', roughness: 0.15, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04 }),
+    cloth,
+    shoe,
     sole: new THREE.MeshStandardMaterial({ color: '#e9ecef', roughness: 0.7, metalness: 0 }),
   }
 }

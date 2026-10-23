@@ -97,7 +97,7 @@ export default function ClientProfilePage() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-8 max-w-lg mx-auto space-y-6">
+    <div className="px-4 pt-6 pb-40 max-w-lg mx-auto space-y-6">
       {/* Header */}
       <h1 className="text-2xl font-bold text-gray-900">Mi Perfil</h1>
 
