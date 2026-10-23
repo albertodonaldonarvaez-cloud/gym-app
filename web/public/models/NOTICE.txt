@@ -1,0 +1,9 @@
+GymAura – modelo 3D del avatar
+==============================
+
+La malla base del cuerpo y los morph targets (anatomía, músculo, peso, rostro) provienen de
+MakeHuman (https://www.makehumancommunity.org), publicados bajo licencia CC0 (dominio público).
+Peso de huesos (rig por defecto) también CC0. No se requiere atribución; se acredita por cortesía.
+
+Prendas, cabello, cejas, ojos y calzado son geometría propia de GymAura generada con
+tools/makehuman/export_mh.py a partir de esa malla.

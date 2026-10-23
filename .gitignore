@@ -26,3 +26,8 @@ web/dev-dist/
 
 __pycache__/
 *.pyc
+
+# MakeHuman raw data (se regenera con tools/makehuman/fetch.py)
+tools/makehuman/data/
+tools/makehuman/listing.txt
+scratch/

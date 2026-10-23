@@ -33,7 +33,7 @@ const HEIGHT: Record<Kind, string> = {
           float h = weave * 0.45 + fold;`,
   // hebras: franjas alrededor de la cabeza con variación
   hair: `float ang = atan(vObj.x, vObj.z + 0.04);
-         float strand = sin(ang * 85.0 + gFbm(vObj * 22.0) * 7.0) * 0.5 + 0.5;
+         float strand = sin(ang * 46.0 + gFbm(vObj * 22.0) * 7.0) * 0.5 + 0.5;
          float h = strand * 1.2 + gNoise(vObj * 700.0) * 0.3;`,
   shoe: 'float h = gFbm(vObj * 600.0) * 0.5;',
 }
@@ -60,7 +60,7 @@ export function enhanceMaterial(mat: THREE.Material, kind: Kind) {
     if (kind === 'hair') {
       frag = frag.replace('#include <color_fragment>', `#include <color_fragment>
   { float ang2 = atan(vObj.x, vObj.z + 0.04);
-    float s2 = sin(ang2 * 85.0 + gFbm(vObj * 22.0) * 7.0) * 0.5 + 0.5;
+    float s2 = sin(ang2 * 46.0 + gFbm(vObj * 22.0) * 7.0) * 0.5 + 0.5;
     diffuseColor.rgb *= 0.74 + 0.5 * s2 + 0.18 * gNoise(vObj * 90.0); }`)
     }
     shader.fragmentShader = frag
@@ -68,3 +68,4 @@ export function enhanceMaterial(mat: THREE.Material, kind: Kind) {
   mat.customProgramCacheKey = () => `gym-${kind}`
   mat.needsUpdate = true
 }
+

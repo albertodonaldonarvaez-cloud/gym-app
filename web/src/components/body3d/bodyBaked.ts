@@ -2,11 +2,11 @@ import * as THREE from 'three'
 import type { BodyMaterials, RenderState, ZoneKey } from './bodyModel'
 import { setStyleColors } from './bodyModel'
 
-// Cuerpo modelado en Blender ("GYMBODY2"): malla base + morph targets esparcidos (int16) + prendas
+// Cuerpo basado en MakeHuman (CC0, "GYMBODY2"): malla base + morph targets esparcidos (int16) + prendas
 // derivadas de la piel. En cada cambio de slider se mezclan los targets activos en CPU, se recalculan
 // normales y un sombreado de pliegues (curvatura) que da volumen a los músculos.
 
-export const BAKED_URL = '/models/gymbody.bin?v=4'
+export const BAKED_URL = '/models/gymbody.bin?v=5'
 
 interface KeyData { n: string; c: number; idx: Uint16Array; val: Int16Array }
 interface PartData {
@@ -14,7 +14,7 @@ interface PartData {
   base?: Float32Array; index: Uint16Array; keys: KeyData[]
   derived?: string; src?: Uint16Array; w?: Float32Array; infl?: Float32Array; accent?: boolean
 }
-export interface BakedBody { parts: PartData[]; deltaScale: number; topY: number; legLen: number; headY: number }
+export interface BakedBody { parts: PartData[]; deltaScale: number; topY: number; legLen: number; headY: number; lips: Uint16Array }
 
 let cache: Promise<BakedBody> | null = null
 
@@ -53,37 +53,45 @@ function parseBaked(buf: ArrayBuffer): BakedBody {
     }
     return part
   })
-  return { parts, deltaScale: head.deltaScale, topY: head.topY, legLen: head.legLen, headY: head.headY ?? 1.628 }
+  const lips = head.nlips ? new Uint16Array(buf, blob + head.lips, head.nlips) : new Uint16Array(0)
+  return { parts, deltaScale: head.deltaScale, topY: head.topY, legLen: head.legLen, headY: head.headY ?? 1.5, lips }
 }
 
-// ── Sliders → peso de cada morph target (misma lógica que tools/blender_body/morphs.py) ──
-const ZONE_LIST: ZoneKey[] = ['chest', 'back', 'delts', 'arms', 'abs', 'glutes', 'quads', 'calves']
-const ZONE_FIELD: Record<ZoneKey, 'zChest' | 'zBack' | 'zDelts' | 'zArms' | 'zAbs' | 'zGlutes' | 'zQuads' | 'zCalves'> = {
-  chest: 'zChest', back: 'zBack', delts: 'zDelts', arms: 'zArms', abs: 'zAbs', glutes: 'zGlutes', quads: 'zQuads', calves: 'zCalves',
+// ── Sliders → peso de cada morph target (claves ± de MakeHuman) ──
+// Targets que definen cada zona muscular (para resaltarla en el editor)
+const ZONE_KEYS: Record<ZoneKey, string[]> = {
+  chest: ['pec+', 'bust+'], back: ['dorsi+', 'vshape+'], delts: ['delt+'], arms: ['bicep+', 'forearm+'],
+  abs: ['abs+', 'abs-'], glutes: ['glutes+'], quads: ['quad+', 'thigh+'], calves: ['calfm+'],
 }
-const ZONE_FF: Record<string, number> = { chest: 0.55, back: 0.72, abs: 1, glutes: 1.25, delts: 1, arms: 1, quads: 1, hams: 1, calves: 1 }
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 export function influences(s: RenderState): Record<string, number> {
   const g = s.g, fat = s.fat / 100, mus = s.muscle / 100
   const nrm = (v: number) => (v - 50) / 50
-  const out: Record<string, number> = {
-    gender: g, fat_m: fat * (1 - g), fat_f: fat * g, muscle_gen: mus * (1 - 0.5 * g),
-    shoulders: nrm(s.shoulders), waist: nrm(s.waist), hips: nrm(s.hips),
-    chest_m: nrm(s.chest) * (1 - g), chest_f: nrm(s.chest) * g,
-    arms: nrm(s.arms), legs: nrm(s.legs), armLen: nrm(s.armLen), legLen: nrm(s.legLen),
-    bone: 1 - 0.85 * fat,
-    face_w: nrm(s.faceW), jaw: nrm(s.jaw), nose: nrm(s.nose), lips: nrm(s.lips), eyes: nrm(s.eyes),
+  const out: Record<string, number> = {}
+  const sgn = (k: string, v: number, mul = 1) => { out[k + '+'] = (out[k + '+'] ?? 0) + Math.max(v, 0) * mul; out[k + '-'] = (out[k + '-'] ?? 0) + Math.max(-v, 0) * mul }
+  // Macro: género, músculo y peso (interpolación MakeHuman por tramos)
+  out.gender = g
+  const mu = 0.12 + 0.88 * mus, wt = 0.2 + 0.8 * fat
+  for (const [gn, gw] of [['m', 1 - g], ['f', g]] as const) {
+    out[`mus_${gn}+`] = Math.max(0, mu - 0.5) * 2.7 * gw; out[`mus_${gn}-`] = Math.max(0, 0.5 - mu) * 2 * gw
+    out[`wt_${gn}+`] = Math.max(0, wt - 0.5) * 2 * gw; out[`wt_${gn}-`] = Math.max(0, 0.5 - wt) * 2 * gw
   }
-  const lvl: Record<string, number> = {}
-  for (const z of ZONE_LIST) lvl[z] = clamp(mus + (s[ZONE_FIELD[z]] - 50) / 100, 0, 1)
-  lvl.hams = (lvl.quads + lvl.glutes) / 2
-  const definition = clamp(1 - fat * 1.3, 0, 1)
-  for (const z of [...ZONE_LIST, 'hams']) {
-    const ff = 1 + (ZONE_FF[z] - 1) * g
-    out['mass_' + z] = lvl[z] * ff * (1 - 0.3 * fat)
-    out['detail_' + z] = (0.3 + 0.7 * lvl[z]) * definition * ff
-  }
+  // Zonas musculares
+  const z = (f: keyof RenderState) => nrm(s[f] as number)
+  sgn('pec', z('zChest')); sgn('dorsi', z('zBack')); sgn('delt', z('zDelts'), 1.2)
+  sgn('bicep', z('zArms')); sgn('forearm', z('zArms'), 0.6)
+  sgn('abs', z('zAbs')); sgn('glutes', z('zGlutes'), 1.2)
+  sgn('quad', z('zQuads')); sgn('calfm', z('zCalves'), 0.6)
+  // Forma general
+  sgn('shoulderw', nrm(s.shoulders), 0.9); sgn('vshape', nrm(s.shoulders), 0.5)
+  sgn('waist', nrm(s.waist)); sgn('hips', nrm(s.hips))
+  sgn('frontchest', nrm(s.chest), 0.8); sgn('bust', nrm(s.chest) * g, 0.8)
+  sgn('armc', nrm(s.arms), 0.9); sgn('thigh', nrm(s.legs), 0.9); sgn('calfc', nrm(s.legs), 0.5)
+  sgn('armLen', nrm(s.armLen), 0.8); sgn('legLen', nrm(s.legLen), 0.55)
+  // Rostro
+  sgn('face_w', nrm(s.faceW), 0.9); sgn('jaw', nrm(s.jaw)); sgn('nose', nrm(s.nose)); sgn('lips', nrm(s.lips)); sgn('eyes', nrm(s.eyes))
+  sgn('cheek', fat - 0.4, 0.8)
   return out
 }
 
@@ -106,10 +114,12 @@ export class BakedInstance {
   private colorCache = new Map<string, THREE.Color>()
   private lastStyleSig = ''
 
+  private browMat = new THREE.MeshStandardMaterial({ color: '#2a1d14', roughness: 0.95, metalness: 0 })
+
   constructor(private data: BakedBody, private mats: BodyMaterials) {
     const matMap: Record<string, THREE.Material> = {
       Skin: mats.skin, Hair: mats.hair, Dark: mats.dark, White: mats.white, Lip: mats.lip, Eye: mats.eye,
-      Cloth: mats.cloth, Shoe: mats.shoe, Sole: mats.sole,
+      Cloth: mats.cloth, Shoe: mats.shoe, Sole: mats.sole, Brow: this.browMat,
     }
     for (const part of data.parts) {
       const geo = new THREE.BufferGeometry()
@@ -119,7 +129,7 @@ export class BakedInstance {
       geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(part.nv * 3), 3).setUsage(THREE.DynamicDrawUsage))
       geo.setIndex(new THREE.BufferAttribute(part.index, 1))
       const item: Item = { part, geo, pos, mesh: null as unknown as THREE.Mesh, lastSig: '' }
-      if (part.mat === 'Skin' || part.mat === 'Cloth') {
+      if (part.mat === 'Skin' || part.mat === 'Cloth' || part.mat === 'Hair' || part.mat === 'Brow') {
         item.colors = new Float32Array(part.nv * 3).fill(1)
         geo.setAttribute('color', new THREE.BufferAttribute(item.colors, 3).setUsage(THREE.DynamicDrawUsage))
       }
@@ -129,6 +139,7 @@ export class BakedInstance {
       this.group.add(item.mesh)
       this.items.set(part.name, item)
     }
+    const sk0 = this.items.get('Skin'); if (sk0) this.measure(sk0.pos)
     // Los pies/zapatos estáticos necesitan normales desde el inicio
     for (const it of this.items.values()) if (!it.part.derived && it.part.keys.length === 0) { it.geo.computeVertexNormals() }
   }
@@ -162,30 +173,14 @@ export class BakedInstance {
       sum += Math.hypot(base[a] - base[b], base[a + 1] - base[b + 1], base[a + 2] - base[b + 2]); cnt++
     }
     const L = sum / Math.max(cnt, 1)
-    item.aoK = (part.name === 'Skin' ? 1 : part.name === 'Head' ? 0.45 : 0.35) * 0.0056 / (L * L)
+    item.aoK = 0.0030 / (L * L)
   }
 
-  /** Detalles de color de la piel que siguen al cuerpo: areolas, rubor en mejillas. */
+  /** Detalles de color de la piel que siguen al cuerpo: labios. */
   private buildTone(item: Item) {
-    const { part } = item, n = part.nv, b = part.base!
+    const { part } = item, n = part.nv
     const tone = new Float32Array(n * 3).fill(1)
-    const headY = this.data.headY
-    for (let v = 0; v < n; v++) {
-      const x = b[v * 3], y = b[v * 3 + 1], z = b[v * 3 + 2]
-      let r = 1, g = 1, bl = 1
-      if (part.name === 'Skin') {
-        for (const sx of [-1, 1]) {
-          const d = Math.hypot(x - sx * 0.090, y - 1.205)
-          if (z > 0.04 && d < 0.0135) { const t = 1 - d / 0.0135; r *= 1 - 0.26 * t; g *= 1 - 0.44 * t; bl *= 1 - 0.40 * t }
-        }
-      } else if (part.name === 'Head') {
-        for (const sx of [-1, 1]) {
-          const d = Math.hypot(x - sx * 0.042, y - (headY - 0.030), (z - 0.070) * 1.2)
-          if (z > 0.04 && d < 0.036) { const t = Math.pow(1 - d / 0.036, 1.4) * 0.5; g *= 1 - 0.15 * t; bl *= 1 - 0.17 * t }
-        }
-      }
-      tone[v * 3] = r; tone[v * 3 + 1] = g; tone[v * 3 + 2] = bl
-    }
+    for (const v of this.data.lips) { tone[v * 3] = 1.0; tone[v * 3 + 1] = 0.66; tone[v * 3 + 2] = 0.68 }
     item.tone = tone
   }
 
@@ -208,7 +203,7 @@ export class BakedInstance {
   private maskFor(item: Item, zone: ZoneKey): Float32Array | null {
     item.masks ??= {}
     if (item.masks[zone]) return item.masks[zone]!
-    const names = zone === 'quads' ? ['mass_quads', 'mass_hams'] : [`mass_${zone}`]
+    const names = ZONE_KEYS[zone]
     const mask = new Float32Array(item.part.nv)
     let max = 0
     for (const k of item.part.keys) {
@@ -231,6 +226,7 @@ export class BakedInstance {
     const sc = this.data.deltaScale
     const st = s.style
     setStyleColors(this.mats, st)
+    this.browMat.color.set(st.hairColor).multiplyScalar(0.8)
 
     // 1) visibilidad según el estilo elegido (peinado, ropa, calzado)
     for (const item of this.items.values()) {
@@ -262,7 +258,7 @@ export class BakedInstance {
       }
       geo.attributes.position.needsUpdate = true
       geo.computeVertexNormals()
-      if (item.ao) { this.computeAO(item); if (part.name === 'Skin') skinChanged = true }
+      if (item.ao) { this.computeAO(item); if (part.name === 'Skin') { skinChanged = true; this.measure(pos) } }
       this.lastHl = '\0' // fuerza actualizar colores
     }
 
@@ -296,9 +292,9 @@ export class BakedInstance {
         const nor = geo.attributes.normal.array as Float32Array
         const col = item.colors!
         const slot = part.vis.split(':')[0]
-        const main = this.color(slot === 'top' ? st.topColor : st.bottomColor), acc = this.color(st.accentColor)
+        const main = this.color(slot === 'top' ? st.topColor : slot === 'shoes' ? st.shoeColor : st.bottomColor), acc = this.color(slot === 'shoes' ? '#f4f5f7' : st.accentColor)
         const src = part.src!, w = part.w!, inf = part.infl!
-        const cc = part.accent ? acc : main
+        const cc = part.mat === 'Hair' || part.mat === 'Brow' ? this.color('#ffffff') : part.accent ? acc : main
         for (let i = 0; i < part.nv; i++) {
           const k = i * 3, a = src[k] * 3, b = src[k + 1] * 3, c2 = src[k + 2] * 3
           const w0 = w[k], w1 = w[k + 1], w2 = w[k + 2], d = i * 3
@@ -318,13 +314,25 @@ export class BakedInstance {
       }
     }
 
-    // 5) escala por altura (el piso queda en y = 0)
-    const dY = 0.12 * infl.legLen * this.data.legLen
-    this.group.scale.setScalar((s.heightCm / 100) / (this.data.topY + dY))
+    // 5) escala por altura (el piso queda en y = 0 y la estatura es exacta)
+    const sc2 = (s.heightCm / 100) / Math.max(this.maxY - this.minY, 0.5)
+    this.group.scale.setScalar(sc2)
+    this.group.position.y = -this.minY * sc2
+  }
+
+  private minY = 0
+  private maxY = 1.73
+  private measure(pos: Float32Array) {
+    let lo = Infinity, hi = -Infinity
+    for (let i = 1; i < pos.length; i += 3) { const y = pos[i]; if (y < lo) lo = y; if (y > hi) hi = y }
+    this.minY = lo; this.maxY = hi
   }
 
   dispose() {
     for (const item of this.items.values()) item.geo.dispose()
     this.items.clear()
+    this.browMat.dispose()
   }
 }
+
+
