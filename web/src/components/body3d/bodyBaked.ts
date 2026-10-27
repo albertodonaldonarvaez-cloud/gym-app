@@ -6,13 +6,67 @@ import { setStyleColors } from './bodyModel'
 // derivadas de la piel. En cada cambio de slider se mezclan los targets activos en CPU, se recalculan
 // normales y un sombreado de pliegues (curvatura) que da volumen a los músculos.
 
-export const BAKED_URL = '/models/gymbody.bin?v=5'
+export const BAKED_URL = '/models/gymbody.bin?v=6'
+
+/** Rampa de sombreado de 4 tonos: da el aspecto de cel-shading (anime). */
+function makeGradient(v: number[] = [190, 220, 244, 255]): THREE.DataTexture {
+  const data = new Uint8Array(v.flatMap(x => [x, x, x, 255]))
+  const t = new THREE.DataTexture(data, 4, 1, THREE.RGBAFormat)
+  t.minFilter = t.magFilter = THREE.NearestFilter
+  t.generateMipmaps = false
+  t.needsUpdate = true
+  return t
+}
+/** Pinta un ojo estilo anime (esclera, iris con degradado, pupila, brillos y párpado) en un canvas. */
+function paintEye(cv: HTMLCanvasElement, color: string) {
+  const S = 512
+  cv.width = cv.height = S
+  const g = cv.getContext('2d')!
+  g.clearRect(0, 0, S, S)
+  const c = S / 2, EX = 205, EY = 195
+  const base = new THREE.Color(color)
+  const dark = base.clone().multiplyScalar(0.38).getStyle()
+  const mid = base.getStyle()
+  const light = base.clone().lerp(new THREE.Color('#ffffff'), 0.5).getStyle()
+  // esclera (con sombra suave arriba)
+  g.save(); g.beginPath(); g.ellipse(c, c, EX, EY, 0, 0, Math.PI * 2); g.clip()
+  let gr = g.createLinearGradient(0, c - EY, 0, c + EY)
+  gr.addColorStop(0, '#c9d2e4'); gr.addColorStop(0.28, '#ffffff'); gr.addColorStop(1, '#ffffff')
+  g.fillStyle = gr; g.fillRect(0, 0, S, S)
+  // iris
+  const ix = c, iy = c + 4, rx = 132, ry = 172
+  gr = g.createLinearGradient(0, iy - ry, 0, iy + ry)
+  gr.addColorStop(0, dark); gr.addColorStop(0.45, mid); gr.addColorStop(1, light)
+  g.fillStyle = gr; g.beginPath(); g.ellipse(ix, iy, rx, ry, 0, 0, Math.PI * 2); g.fill()
+  g.lineWidth = 9; g.strokeStyle = dark; g.stroke()
+  // brillo inferior del iris
+  g.fillStyle = 'rgba(255,255,255,0.28)'; g.beginPath(); g.ellipse(ix, iy + ry * 0.55, rx * 0.62, ry * 0.26, 0, 0, Math.PI * 2); g.fill()
+  // pupila
+  g.fillStyle = '#140c18'; g.beginPath(); g.ellipse(ix, iy - 4, 58, 92, 0, 0, Math.PI * 2); g.fill()
+  // reflejos
+  g.fillStyle = '#ffffff'
+  g.beginPath(); g.ellipse(ix - 46, iy - 78, 38, 40, 0, 0, Math.PI * 2); g.fill()
+  g.beginPath(); g.ellipse(ix + 52, iy + 70, 17, 18, 0, 0, Math.PI * 2); g.fill()
+  g.restore()
+  // párpado superior grueso con colita hacia afuera (u crece hacia el lado exterior)
+  g.strokeStyle = '#1d1222'; g.lineCap = 'round'; g.lineJoin = 'round'
+  g.lineWidth = 26
+  g.beginPath(); g.ellipse(c, c, EX + 6, EY + 6, 0, Math.PI * 1.04, Math.PI * 1.97); g.stroke()
+  g.lineWidth = 15
+  g.beginPath(); g.moveTo(c + EX - 4, c - 70); g.quadraticCurveTo(c + EX + 36, c - 92, c + EX + 52, c - 128); g.stroke()
+  // pestaña inferior fina
+  g.lineWidth = 7
+  g.beginPath(); g.ellipse(c, c, EX - 6, EY - 6, 0, Math.PI * 0.12, Math.PI * 0.88); g.stroke()
+}
+
+const OUTLINED = new Set(['Skin', 'Cloth', 'Hair', 'Shoe', 'Sole'])
+const OUTLINE_W = 0.0016
 
 interface KeyData { n: string; c: number; idx: Uint16Array; val: Int16Array }
 interface PartData {
   name: string; mat: string; nv: number; nt: number; vis: string
   base?: Float32Array; index: Uint16Array; keys: KeyData[]
-  derived?: string; src?: Uint16Array; w?: Float32Array; infl?: Float32Array; accent?: boolean
+  derived?: string; src?: Uint16Array; w?: Float32Array; infl?: Float32Array; accent?: boolean; uv?: Float32Array
 }
 export interface BakedBody { parts: PartData[]; deltaScale: number; topY: number; legLen: number; headY: number; lips: Uint16Array }
 
@@ -45,6 +99,7 @@ function parseBaked(buf: ArrayBuffer): BakedBody {
       part.w = new Float32Array(buf, blob + p.w, p.nv * 3)
       part.infl = new Float32Array(buf, blob + p.infl, p.nv)
       part.accent = !!p.accent
+      if (p.uv !== undefined) part.uv = new Float32Array(buf, blob + p.uv, p.nv * 2)
     } else {
       part.base = new Float32Array(buf, blob + p.pos, p.nv * 3)
       part.keys = p.keys.map((k: any) => ({
@@ -98,6 +153,7 @@ export function influences(s: RenderState): Record<string, number> {
 interface Item {
   part: PartData
   mesh: THREE.Mesh
+  outline?: THREE.Mesh
   geo: THREE.BufferGeometry
   pos: Float32Array
   colors?: Float32Array
@@ -114,13 +170,31 @@ export class BakedInstance {
   private colorCache = new Map<string, THREE.Color>()
   private lastStyleSig = ''
 
-  private browMat = new THREE.MeshStandardMaterial({ color: '#2a1d14', roughness: 0.95, metalness: 0 })
+  private eyeCanvas = document.createElement('canvas')
+  private eyeTex = new THREE.CanvasTexture(this.eyeCanvas)
+  private eyeMat = new THREE.MeshBasicMaterial({ map: this.eyeTex, alphaTest: 0.4, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 })
+  private eyeColor = ''
+  private grad = makeGradient()
+  private gradSkin = makeGradient([128, 182, 230, 255])
+  private toon: Record<string, THREE.MeshToonMaterial> = {}
+  private outlineMat = (() => {
+    const m = new THREE.MeshBasicMaterial({ color: '#46283a', side: THREE.BackSide })
+    m.onBeforeCompile = sh => {
+      sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `vec3 transformed = position + normalize(normal) * ${OUTLINE_W};`)
+    }
+    return m
+  })()
 
   constructor(private data: BakedBody, private mats: BodyMaterials) {
-    const matMap: Record<string, THREE.Material> = {
-      Skin: mats.skin, Hair: mats.hair, Dark: mats.dark, White: mats.white, Lip: mats.lip, Eye: mats.eye,
-      Cloth: mats.cloth, Shoe: mats.shoe, Sole: mats.sole, Brow: this.browMat,
+    this.eyeTex.colorSpace = THREE.SRGBColorSpace
+    const B = (c: string, lvl = 1) => new THREE.MeshBasicMaterial({ color: c, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -lvl * 2, polygonOffsetUnits: -lvl * 4 }) as unknown as THREE.MeshToonMaterial
+    const T = (o: THREE.MeshToonMaterialParameters) => new THREE.MeshToonMaterial({ gradientMap: this.grad, ...o })
+    this.toon = {
+      Skin: T({ vertexColors: true, gradientMap: this.gradSkin }), Cloth: T({ vertexColors: true }), Hair: T({ vertexColors: true, side: THREE.DoubleSide }),
+      Brow: T({ vertexColors: true }), Dark: B('#1d1222', 4), White: B('#ffffff', 1), Eye: B('#5a3d2b', 2), Shine: B('#ffffff', 6), EyeTex: this.eyeMat as unknown as THREE.MeshToonMaterial,
+      EyeLight: B('#9a7a60', 3), Lip: T({ color: '#d98a86' }), Shoe: T({ color: '#f3f4f6' }), Sole: T({ color: '#f4f5f7' }),
     }
+    const matMap: Record<string, THREE.Material> = this.toon
     for (const part of data.parts) {
       const geo = new THREE.BufferGeometry()
       const pos = new Float32Array(part.nv * 3)
@@ -128,8 +202,9 @@ export class BakedInstance {
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage))
       geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(part.nv * 3), 3).setUsage(THREE.DynamicDrawUsage))
       geo.setIndex(new THREE.BufferAttribute(part.index, 1))
+      if (part.uv) geo.setAttribute('uv', new THREE.BufferAttribute(part.uv, 2))
       const item: Item = { part, geo, pos, mesh: null as unknown as THREE.Mesh, lastSig: '' }
-      if (part.mat === 'Skin' || part.mat === 'Cloth' || part.mat === 'Hair' || part.mat === 'Brow') {
+      if (part.mat === 'Skin' || part.mat === 'Cloth' || part.mat === 'Hair' || part.mat === 'Brow' || part.derived) {
         item.colors = new Float32Array(part.nv * 3).fill(1)
         geo.setAttribute('color', new THREE.BufferAttribute(item.colors, 3).setUsage(THREE.DynamicDrawUsage))
       }
@@ -137,6 +212,11 @@ export class BakedInstance {
       item.mesh = new THREE.Mesh(geo, matMap[part.mat])
       item.mesh.frustumCulled = false
       this.group.add(item.mesh)
+      if (OUTLINED.has(part.mat)) {
+        item.outline = new THREE.Mesh(geo, this.outlineMat)
+        item.outline.frustumCulled = false
+        this.group.add(item.outline)
+      }
       this.items.set(part.name, item)
     }
     const sk0 = this.items.get('Skin'); if (sk0) this.measure(sk0.pos)
@@ -226,7 +306,12 @@ export class BakedInstance {
     const sc = this.data.deltaScale
     const st = s.style
     setStyleColors(this.mats, st)
-    this.browMat.color.set(st.hairColor).multiplyScalar(0.8)
+    const tn = this.toon
+    tn.Skin.color.copy(this.mats.skin.color)
+    tn.Hair.color.set(st.hairColor); tn.Hair.emissive.set(st.hairColor).multiplyScalar(0.22); tn.Brow.color.set(st.hairColor).multiplyScalar(0.75)
+    if (st.eyeColor !== this.eyeColor) { this.eyeColor = st.eyeColor; paintEye(this.eyeCanvas, st.eyeColor); this.eyeTex.needsUpdate = true }
+    tn.Eye.color.set(st.eyeColor); tn.EyeLight.color.set(st.eyeColor).lerp(new THREE.Color('#ffffff'), 0.42)
+    tn.Shoe.color.set(st.shoeColor)
 
     // 1) visibilidad según el estilo elegido (peinado, ropa, calzado)
     for (const item of this.items.values()) {
@@ -234,6 +319,7 @@ export class BakedInstance {
       if (!vis) { item.mesh.visible = true; continue }
       const [k, v] = vis.split(':')
       item.mesh.visible = (st as unknown as Record<string, string>)[k] === v
+      if (item.outline) item.outline.visible = item.mesh.visible
     }
 
     // 2) piezas con morph targets (solo se recalculan si cambiaron sus pesos)
@@ -273,7 +359,7 @@ export class BakedInstance {
         const c = item.colors, ao = item.ao
         for (let v = 0, n = ao.length; v < n; v++) {
           const t = mask ? mask[v] * s.hl * 0.55 : 0
-          const a = ao[v], tn = item.tone!
+          const a = 0.62 + 0.38 * ao[v], tn = item.tone!
           c[v * 3] = a * tn[v * 3] * (1 - t + 0.30 * t); c[v * 3 + 1] = a * tn[v * 3 + 1] * (1 - t + 0.95 * t); c[v * 3 + 2] = a * tn[v * 3 + 2] * (1 - t + 1.55 * t)
         }
         item.geo.attributes.color.needsUpdate = true
@@ -294,7 +380,7 @@ export class BakedInstance {
         const slot = part.vis.split(':')[0]
         const main = this.color(slot === 'top' ? st.topColor : slot === 'shoes' ? st.shoeColor : st.bottomColor), acc = this.color(slot === 'shoes' ? '#f4f5f7' : st.accentColor)
         const src = part.src!, w = part.w!, inf = part.infl!
-        const cc = part.mat === 'Hair' || part.mat === 'Brow' ? this.color('#ffffff') : part.accent ? acc : main
+        const cc = part.mat !== 'Cloth' ? this.color('#ffffff') : part.accent ? acc : main
         for (let i = 0; i < part.nv; i++) {
           const k = i * 3, a = src[k] * 3, b = src[k + 1] * 3, c2 = src[k + 2] * 3
           const w0 = w[k], w1 = w[k + 1], w2 = w[k + 2], d = i * 3
@@ -305,7 +391,7 @@ export class BakedInstance {
           pos[d] = w0 * sp[a] + w1 * sp[b] + w2 * sp[c2] + nx * o
           pos[d + 1] = w0 * sp[a + 1] + w1 * sp[b + 1] + w2 * sp[c2 + 1] + ny * o
           pos[d + 2] = w0 * sp[a + 2] + w1 * sp[b + 2] + w2 * sp[c2 + 2] + nz * o
-          const shade = 0.9 + 0.1 * (w0 * sao[src[k]] + w1 * sao[src[k + 1]] + w2 * sao[src[k + 2]])
+          const shade = part.mat === 'Cloth' ? 0.92 + 0.08 * (w0 * sao[src[k]] + w1 * sao[src[k + 1]] + w2 * sao[src[k + 2]]) : 1
           col[d] = cc.r * shade; col[d + 1] = cc.g * shade; col[d + 2] = cc.b * shade
         }
         geo.attributes.position.needsUpdate = true
@@ -331,8 +417,9 @@ export class BakedInstance {
   dispose() {
     for (const item of this.items.values()) item.geo.dispose()
     this.items.clear()
-    this.browMat.dispose()
+    Object.values(this.toon).forEach(m => m.dispose()); this.outlineMat.dispose(); this.eyeMat.dispose(); this.eyeTex.dispose(); this.grad.dispose(); this.gradSkin.dispose()
   }
 }
+
 
 

@@ -133,7 +133,7 @@ def main():
     isb = lambda *pre: np.array([d.startswith(pre) for d in dom])
     ol = np.nonzero(isb('oris'))[0]
     mc = np.median(P0[ol], axis=0)
-    ok = (np.abs(P0[ol, 0] - mc[0]) < 0.031) & (np.abs(P0[ol, 1] - mc[1]) < 0.0105)
+    ok = (np.abs(P0[ol, 0] - mc[0]) < 0.024) & (np.abs(P0[ol, 1] - mc[1]) < 0.0075)
     lips = ol[ok].astype(np.uint16)
 
     # ---- pose natural: bajar los brazos ~25 grados alrededor del hombro (mezcla por pesos de huesos)
@@ -155,6 +155,20 @@ def main():
             if jn.startswith('joint-' + side.lower() + '-') and any(t in jn for t in ('elbow', 'hand', 'finger', 'wrist')):
                 J[jn] = c + (J[jn] - c) @ R.T
     print('lips', len(ol), '->', len(lips), 'mouth', np.round(mc, 3))
+
+    # ---- estilo anime: cabeza ~10% mas grande, nariz/boca/menton pequenos (se hornea en la base)
+    HS, NY = 1.10, 1.43
+    hb = np.zeros(M.NBODY)
+    for j, b in enumerate(bones):
+        if b.startswith(('head', 'jaw', 'oris', 'oculi', 'orbic', 'levator', 'risorius', 'special', 'tongue', 'eye', 'neck03')): hb += Wm[:, j]
+        elif b.startswith('neck02'): hb += 0.5 * Wm[:, j]
+    hb = np.clip(hb, 0, 1)
+    hc = np.array([0.0, NY, 0.01])
+    P0 = P0 + hb[:, None] * (P0 - hc) * (HS - 1)
+    for kn in K: K[kn] = K[kn] * (1 + (HS - 1) * hb[:, None])
+    for jn in ('joint-l-eye', 'joint-r-eye', 'joint-head'): J[jn] = hc + (J[jn] - hc) * HS
+    P0 = P0 + 0.9 * K['nose-'] + 0.85 * K['lips-'] + 0.55 * K['jaw-'] + 0.35 * K['chin-']
+    H = lambda c: NY + HS * (c - NY)
     blob = Blob(); parts = []
     nrm0 = vertex_normals(P0, tris)
 
@@ -213,9 +227,6 @@ def main():
                 cnt = len(pts_all[0]); acc[o:o + cnt] = d[sel].mean(0); o += cnt
             keys[kn] = acc
         keyed(name, mat, pts, keys, tr)
-    eye_part('EyeWhite', 'White', None, EYE_R)
-    eye_part('Iris', 'Eye', 0.52, EYE_R * 1.003)
-    eye_part('Pupil', 'Dark', 0.22, EYE_R * 1.006)
 
     # ---- prendas derivadas de la piel
     def region_mask(Pref):
@@ -344,45 +355,46 @@ def main():
         return lambda P: base + top * np.clip((P[:, 1] - y0) / 0.10, 0, 1)
     def hair(name, regions, infl, mask='any'):
         derived('Hair_' + name, 'hair:' + name, 'm', mask, regions, infl, mat='Hair')
-    NOEAR = lambda c: [hairline(c) + [((0, 1, 0), 1.665, True)], hairline(c) + [((0, 1, 0), 1.665, False), ((1, 0, 0), 0.071, False), ((-1, 0, 0), 0.071, False)]]
-    CAP = hairline(1.6125)
-    hair('short', NOEAR(1.6125), hair_infl(0.006, 0.012))
-    hair('buzz', [hairline(1.620)], hair_infl(0.0022, 0.0015))
-    hair('curly', [hairline(1.585)], lambda P: 0.014 + 0.026 * np.clip((P[:, 1] - 1.58) / 0.10, 0, 1) + 0.011 * (0.5 + 0.5 * np.sin(P[:, 0] * 230 + 1.3) * np.sin(P[:, 1] * 210) * np.sin(P[:, 2] * 240 + 0.7)))
-    hair('long', [hairline(1.600),
-                  [((0, 0, -1), 0.0, True), ((-1.2, 1, 0), 1.20, True), ((1.2, 1, 0), 1.20, True), ((0, 1, 0), 1.60, False), ((1, 0, 0), 0.125, False), ((-1, 0, 0), 0.125, False)],
-                  [((0, 0, -1), -0.02, True)] + Yp(1.30, 1.50) + Xr(0.062, 0.115), [((0, 0, -1), -0.02, True)] + Yp(1.30, 1.50) + Xr(-0.115, -0.062)],
-         lambda P: 0.007 + 0.014 * np.clip((P[:, 1] - 1.62) / 0.1, 0, 1) + 0.010 * np.clip((1.55 - P[:, 1]) / 0.3, 0, 1))
-    hair('ponytail', NOEAR(1.6125), hair_infl(0.006, 0.012))
-    hair('bun', NOEAR(1.6125), hair_infl(0.006, 0.012))
+    NAPE = [((0, 0, -1), 0.03, True), ((0, 1, 0), H(1.575), True), ((1, 0, 0), 0.075, False), ((-1, 0, 0), 0.075, False)]
+    NOEAR = lambda c: [NAPE, hairline(c) + [((0, 1, 0), H(1.665), True)], hairline(c) + [((0, 1, 0), H(1.665), False), ((1, 0, 0), 0.078, False), ((-1, 0, 0), 0.078, False)]]
+    # casquete fino (base de los mechones)
+    hair('short', NOEAR(H(1.6275)), hair_infl(0.005, 0.006, H(1.62)))
+    hair('buzz', [hairline(H(1.620))], hair_infl(0.0022, 0.0015, H(1.62)))
+    hair('curly', [hairline(H(1.600))], hair_infl(0.006, 0.006, H(1.60)))
+    hair('long', NOEAR(H(1.6275)), hair_infl(0.005, 0.006, H(1.62)))
+    hair('ponytail', NOEAR(H(1.6275)), hair_infl(0.005, 0.006, H(1.62)))
+    hair('bun', NOEAR(H(1.6275)), hair_infl(0.005, 0.006, H(1.62)))
 
-    # piezas rigidas que siguen a la cabeza (coleta y mono)
-    headsel = np.linalg.norm(P0 - np.array([0.0, 1.62, 0.0]), axis=1) < 0.12
+    # elipsoide del craneo (los mechones de Blender se definen en una esfera unitaria)
+    hv = np.nonzero(isb('head', 'jaw') & (P0[:, 1] > H(1.60)))[0]
+    xs, ys, zs_ = P0[hv, 0], P0[hv, 1], P0[hv, 2]
+    RX = (xs.max() - xs.min()) / 2 + 0.010
+    RZ = (zs_.max() - zs_.min()) / 2 + 0.008
+    RY = 0.120
+    CH = np.array([0.0, ys.max() - RY + 0.002, (zs_.max() + zs_.min()) / 2])
+    print('craneo', np.round(CH, 3), np.round([RX, RY, RZ], 3))
+    headsel = np.linalg.norm(P0 - CH, axis=1) < 0.14
     def head_follow(name, mat, pts, tr, vis):
         keys = {}
         for kn, d in K.items():
             if not kn.startswith(('face_w', 'head_', 'jaw', 'chin', 'gender', 'mus_', 'wt_', 'legLen', 'cheek')): continue
             keys[kn] = np.tile(d[headsel].mean(0), (len(pts), 1))
         keyed(name, mat, pts, keys, tr, vis=vis)
-    def capsule(a, b, r0, r1, nu=18, nv=14):
-        a = np.asarray(a, float); b = np.asarray(b, float); ax = b - a; L = np.linalg.norm(ax); ax /= L
-        u = np.cross(ax, [1, 0, 0]); u /= np.linalg.norm(u); v = np.cross(ax, u)
-        pts = []
-        for j in range(nv + 1):
-            t = j / nv; r = r0 + (r1 - r0) * np.sin(t * np.pi * 0.5) ** 0.9 if False else r0 + (r1 - r0) * t
-            r *= np.sin(np.pi * (0.12 + 0.88 * t)) ** 0.35 if t > 0.88 else 1.0
-            for i in range(nu):
-                ph = 2 * np.pi * i / nu
-                pts.append(a + ax * L * t + (np.cos(ph) * u + np.sin(ph) * v) * r)
-        pts = np.array(pts); tris_ = []
-        for j in range(nv):
-            for i in range(nu):
-                a_ = j * nu + i; b_ = j * nu + (i + 1) % nu; c_ = (j + 1) * nu + i; d_ = (j + 1) * nu + (i + 1) % nu
-                tris_ += [[a_, c_, b_], [b_, c_, d_]]
-        return pts, np.array(tris_, np.int64)
-    pts, tr = capsule([0.0, 1.655, -0.082], [0.0, 1.43, -0.16], 0.030, 0.012)
-    head_follow('Hair_ponytail_tail', 'Hair', pts, tr, 'hair:ponytail')
-    pts, tr = uv_sphere(np.array([0.0, 1.715, -0.050]), 0.046, nu=24, nv=16)
+    def load_obj(fn):
+        vs, fs = [], []
+        for ln in open(fn):
+            if ln.startswith('v '): vs.append([float(t) for t in ln.split()[1:4]])
+            elif ln.startswith('f '):
+                q = [int(t.split('/')[0]) - 1 for t in ln.split()[1:]]
+                for k in range(1, len(q) - 1): fs.append([q[0], q[k], q[k + 1]])
+        return np.array(vs), np.array(fs, np.int64)
+    ANIME = os.path.join(HERE, '..', 'anime')
+    for style in ('short', 'long', 'curly', 'ponytail', 'bun'):
+        u, f = load_obj(os.path.join(ANIME, f'hair_{style}.obj'))
+        pts = CH + u * np.array([RX, RY, RZ])
+        assert len(pts) < 65536
+        head_follow(f'Hair_{style}_locks', 'Hair', pts, f, f'hair:{style}')
+    pts, tr = uv_sphere(CH + np.array([0.0, RY * 0.92, -RZ * 0.55]), 0.050, nu=24, nv=16)
     head_follow('Hair_bun_ball', 'Hair', pts, tr, 'hair:bun')
 
     # cejas: cinta pegada a la superficie del rostro
@@ -411,8 +423,8 @@ def main():
         ring = []
         for k in range(13):
             t = k / 12; x = 0.014 + t * 0.050
-            ycen = EY + 0.027 + 0.010 * np.sin(np.pi * min(t * 1.25, 1.0)) - 0.012 * t * t
-            hw = 0.0042 * (1 - 0.55 * t) + 0.0012
+            ycen = EY + 0.031 + 0.008 * np.sin(np.pi * min(t * 1.25, 1.0)) - 0.012 * t * t
+            hw = 0.0046 * (1 - 0.5 * t) + 0.0012
             ring.append(((sgn * x, ycen + hw), (sgn * x, ycen - hw)))
         base = len(brow_pts)
         for a_, b_ in ring: brow_pts += [(a_[0], a_[1], 0.0), (b_[0], b_[1], 0.0)]
@@ -423,8 +435,52 @@ def main():
     bsrc, bw = surface_pts(bp)
     bsrc3 = np.concatenate([bsrc], axis=1)
     parts.append(dict(name='Brows', mat='Brow', derived='Skin', vis='', accent=0, nv=int(len(bp)), nt=int(len(brow_tris)),
-                      src=blob.add(bsrc3.ravel()), w=blob.add(bw.ravel()), infl=blob.add(np.full(len(bp), 0.0022, np.float32)),
+                      src=blob.add(bsrc3.ravel()), w=blob.add(bw.ravel()), infl=blob.add(np.full(len(bp), 0.0035, np.float32)),
                       idx=blob.add(to_uint16_tris(np.array(brow_tris, np.int64)))))
+
+
+    # ---------------- ojos anime: capas planas pegadas a la cara ----------------
+    def patch(cx, cy, a, b, r0=0.0, a0=0.0, a1=360.0, nr=4, ns=28, dy=0.0):
+        pts, tri = [], []
+        n_a = ns if (a1 - a0) >= 359 else max(6, int(ns * (a1 - a0) / 360) + 1)
+        closed = (a1 - a0) >= 359
+        for j in range(nr + 1):
+            r = r0 + (1 - r0) * j / nr
+            for i in range(n_a if not closed else ns):
+                ang = np.radians(a0 + (a1 - a0) * i / (ns if closed else n_a - 1))
+                pts.append((cx + a * r * np.cos(ang), cy + dy + b * r * np.sin(ang)))
+        W = ns if closed else n_a
+        for j in range(nr):
+            for i in range(W):
+                i2 = (i + 1) % W if closed else i + 1
+                if not closed and i2 >= W: continue
+                p0, p1, p2, p3 = j * W + i, j * W + i2, (j + 1) * W + i, (j + 1) * W + i2
+                tri += [[p0, p2, p1], [p1, p2, p3]]
+        return np.array(pts), np.array(tri, np.int64)
+
+    # un solo plano por ojo con UV (la textura del ojo anime se pinta en la web con el color elegido)
+    ex, ey_ = float(abs(eye_c[0][0])), float(eye_c[0][1])
+    WH, HH = 0.0250, 0.0250            # semiancho / semialto del plano del ojo
+    G = 18
+    P2, UV, T2, o = [], [], [], 0
+    for sgn in (1, -1):
+        for iy in range(G + 1):
+            for ix in range(G + 1):
+                u, v = ix / G, iy / G
+                P2.append((sgn * (ex + 0.001 + (u * 2 - 1) * WH), ey_ + (v * 2 - 1) * HH))
+                UV.append((u, v))
+        for iy in range(G):
+            for ix in range(G):
+                a = o + iy * (G + 1) + ix; b = a + 1; c = a + (G + 1); d = c + 1
+                tri = [[a, b, d], [a, d, c]]
+                if sgn < 0: tri = [t[::-1] for t in tri]
+                T2 += tri
+        o += (G + 1) ** 2
+    P2 = np.array(P2); UV = np.array(UV, np.float32); T2 = np.array(T2, np.int64)
+    src, w = surface_pts(np.column_stack([P2, np.zeros(len(P2))]))
+    parts.append(dict(name='EyeTex', mat='EyeTex', derived='Skin', vis='', accent=0, nv=int(len(P2)), nt=int(len(T2)),
+                      src=blob.add(src.ravel()), w=blob.add(w.ravel()), infl=blob.add(np.full(len(P2), 0.0022, np.float32)),
+                      uv=blob.add(UV.ravel()), idx=blob.add(to_uint16_tris(T2))))
 
     head = dict(version=3, deltaScale=DELTA_SCALE, parts=parts, topY=top, legLen=0.0, headY=float(J['joint-head'][1]),
                 eyeY=float(eye_c[0][1]), lips=blob.add(lips), nlips=int(len(lips)),

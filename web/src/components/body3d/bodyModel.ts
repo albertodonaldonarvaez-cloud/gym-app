@@ -48,7 +48,7 @@ export type ShoeStyle = 'sneakers' | 'none'
 
 export const HAIR_OPTIONS: { id: HairStyle; label: string }[] = [
   { id: 'short', label: 'Corto' }, { id: 'buzz', label: 'Rapado' }, { id: 'long', label: 'Largo' },
-  { id: 'ponytail', label: 'Coleta' }, { id: 'bun', label: 'Chongo' }, { id: 'curly', label: 'Rizado' }, { id: 'bald', label: 'Sin pelo' },
+  { id: 'ponytail', label: 'Coleta' }, { id: 'bun', label: 'Chongo' }, { id: 'curly', label: 'Puntas' }, { id: 'bald', label: 'Sin pelo' },
 ]
 export const TOP_OPTIONS: { id: TopStyle; label: string }[] = [{ id: 'none', label: 'Sin top' }, { id: 'bra', label: 'Top deportivo' }, { id: 'tank', label: 'Playera' }]
 export const BOTTOM_OPTIONS: { id: BottomStyle; label: string }[] = [{ id: 'shorts', label: 'Short' }, { id: 'leggings', label: 'Leggings' }, { id: 'boxer', label: 'Bóxer' }]
@@ -755,3 +755,4 @@ export function disposeGroup(group: THREE.Object3D) {
     if (mesh.isMesh) mesh.geometry.dispose()
   })
 }
+
