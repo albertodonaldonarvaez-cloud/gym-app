@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Camera, Save, Loader2, LogOut, Plus, Minus, FileText, ChevronRight } from 'lucide-react'
+import { Camera, Save, Loader2, LogOut, Plus, Minus, FileText, ChevronRight, Download, Share } from 'lucide-react'
 const BodyAvatarEditor = lazy(() => import('../../components/body3d/BodyAvatarEditor'))
 import { getToken, getUser, clearAuth } from '../clientApi'
+import { canInstallPWA, isInStandaloneMode, isIOS, triggerInstallPWA } from '../components/InstallPrompt'
 
 const BASE = (import.meta as any).env?.VITE_API_URL ?? ''
 
@@ -26,6 +27,14 @@ export default function ClientProfilePage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [canInstall, setCanInstall] = useState(() => canInstallPWA())
+  const [iosGuide, setIosGuide] = useState(false)
+
+  useEffect(() => {
+    const sync = () => setCanInstall(canInstallPWA())
+    window.addEventListener('gymaura-install-available', sync)
+    return () => window.removeEventListener('gymaura-install-available', sync)
+  }, [])
 
   useEffect(() => {
     fetch(`${BASE}/api/v1/user/profile`, {
@@ -226,6 +235,28 @@ export default function ClientProfilePage() {
       >
         {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : saved ? '✅ Guardado' : <><Save className="w-5 h-5" /> Guardar cambios</>}
       </button>
+
+      {/* Install PWA */}
+      {!isInStandaloneMode() && (canInstall || isIOS()) && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2.5">
+          <button
+            type="button"
+            onClick={async () => {
+              if (canInstall) await triggerInstallPWA()
+              else setIosGuide(v => !v)
+            }}
+            className="w-full py-3 px-4 rounded-xl bg-[#007AFF]/10 text-[#007AFF] font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+          >
+            <Download className="w-4 h-4" />
+            Instalar App en mi dispositivo
+          </button>
+          {iosGuide && isIOS() && (
+            <p className="text-xs text-gray-600 leading-relaxed px-1">
+              En Safari toca <span className="inline-flex items-center gap-0.5 text-[#007AFF] font-semibold"><Share className="w-3 h-3" /> Compartir</span> y elige <strong>&ldquo;Añadir a pantalla de inicio&rdquo;</strong> para usarla sin abrir el navegador.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Legal */}
       <Link to="/terms" className="w-full py-3.5 px-4 rounded-2xl bg-white text-gray-700 font-medium text-sm flex items-center gap-3 shadow-sm active:bg-gray-50 transition-colors">

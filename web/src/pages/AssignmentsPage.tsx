@@ -126,7 +126,7 @@ export default function AssignmentsPage() {
                             <button
                               onClick={() => handleUnassign(client.id)}
                               disabled={assigningId === client.id}
-                              className="text-xs text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"
+                              className="text-xs text-gray-500 hover:text-red-600 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all"
                             >
                               {assigningId === client.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Desasignar'}
                             </button>

@@ -1,53 +1,89 @@
 import { useEffect, useState } from 'react'
 import { Download, X, Share } from 'lucide-react'
 
-interface BeforeInstallPromptEvent extends Event {
+export interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
-function isIOS() {
+export function isIOS() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent)
 }
-function isInStandaloneMode() {
+
+export function isInStandaloneMode() {
   return ('standalone' in navigator && (navigator as any).standalone) ||
     window.matchMedia('(display-mode: standalone)').matches
 }
-function isSupportedBrowser() {
-  // Chrome, Edge, Samsung Browser, Firefox support beforeinstallprompt
-  return 'BeforeInstallPromptEvent' in window || 'onbeforeinstallprompt' in window
+
+export function canInstallPWA(): boolean {
+  return !isInStandaloneMode() && !!(window as any).__gymauraInstallPrompt
+}
+
+export async function triggerInstallPWA(): Promise<'accepted' | 'dismissed' | 'unavailable'> {
+  const evt = (window as any).__gymauraInstallPrompt as BeforeInstallPromptEvent | undefined
+  if (!evt) return 'unavailable'
+  try {
+    await evt.prompt()
+    const { outcome } = await evt.userChoice
+    ;(window as any).__gymauraInstallPrompt = null
+    window.dispatchEvent(new CustomEvent('gymaura-install-available'))
+    return outcome
+  } catch {
+    return 'dismissed'
+  }
 }
 
 const DISMISSED_KEY = 'gymaura_install_dismissed'
 const DISMISSED_EXPIRY = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 export default function InstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(
+    () => (window as any).__gymauraInstallPrompt ?? null
+  )
   const [showIOSBanner, setShowIOSBanner] = useState(false)
   const [installing, setInstalling] = useState(false)
 
   useEffect(() => {
-    // Already installed as PWA — don't show
     if (isInStandaloneMode()) return
 
-    // Check if user recently dismissed
-    const dismissed = localStorage.getItem(DISMISSED_KEY)
-    if (dismissed && Date.now() - parseInt(dismissed) < DISMISSED_EXPIRY) return
-
-    // iOS: Safari doesn't support beforeinstallprompt, show manual instructions
-    if (isIOS()) {
-      const timer = setTimeout(() => setShowIOSBanner(true), 3000)
-      return () => clearTimeout(timer)
+    const syncGlobalPrompt = () => {
+      const p = (window as any).__gymauraInstallPrompt as BeforeInstallPromptEvent | undefined
+      setDeferredPrompt(p ?? null)
     }
+    syncGlobalPrompt()
 
-    // Android / Chrome / Edge / Desktop: capture the install event
-    const handler = (e: Event) => {
+    const onBeforeInstall = (e: Event) => {
       e.preventDefault()
+      ;(window as any).__gymauraInstallPrompt = e
       setDeferredPrompt(e as BeforeInstallPromptEvent)
     }
-    window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
+    const onInstalled = () => {
+      setDeferredPrompt(null)
+      setShowIOSBanner(false)
+    }
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstall)
+    window.addEventListener('gymaura-install-available', syncGlobalPrompt)
+    window.addEventListener('appinstalled', onInstalled)
+
+    const dismissed = localStorage.getItem(DISMISSED_KEY)
+    const recentlyDismissed = dismissed && Date.now() - parseInt(dismissed) < DISMISSED_EXPIRY
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    if (isIOS() && !recentlyDismissed) {
+      timer = setTimeout(() => setShowIOSBanner(true), 3000)
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall)
+      window.removeEventListener('gymaura-install-available', syncGlobalPrompt)
+      window.removeEventListener('appinstalled', onInstalled)
+    }
   }, [])
+
+  const dismissed = localStorage.getItem(DISMISSED_KEY)
+  const hideBanner = dismissed && Date.now() - parseInt(dismissed) < DISMISSED_EXPIRY
 
   const dismiss = () => {
     localStorage.setItem(DISMISSED_KEY, String(Date.now()))
@@ -59,8 +95,7 @@ export default function InstallPrompt() {
     if (!deferredPrompt) return
     setInstalling(true)
     try {
-      await deferredPrompt.prompt()
-      const { outcome } = await deferredPrompt.userChoice
+      const outcome = await triggerInstallPWA()
       if (outcome === 'accepted') {
         localStorage.setItem(DISMISSED_KEY, String(Date.now()))
       }
@@ -71,7 +106,7 @@ export default function InstallPrompt() {
   }
 
   // Android / Chrome / Edge banner
-  if (deferredPrompt) {
+  if (deferredPrompt && !hideBanner) {
     return (
       <div className="fixed bottom-[82px] left-3 right-3 z-40 animate-[fadeIn_0.3s_ease]">
         <div className="bg-white rounded-2xl shadow-xl shadow-black/15 border border-gray-100 p-4 flex items-center gap-3">
@@ -80,7 +115,7 @@ export default function InstallPrompt() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-gray-900 text-sm">Instalar GymAura</p>
-            <p className="text-xs text-gray-500 mt-0.5">Acceso rapido desde tu pantalla de inicio</p>
+            <p className="text-xs text-gray-500 mt-0.5">Acceso rápido desde tu pantalla de inicio</p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
             <button onClick={dismiss} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center active:scale-90 transition-transform">
@@ -98,7 +133,7 @@ export default function InstallPrompt() {
   }
 
   // iOS Safari banner
-  if (showIOSBanner) {
+  if (showIOSBanner && !hideBanner) {
     return (
       <div className="fixed bottom-[82px] left-3 right-3 z-40 animate-[fadeIn_0.3s_ease]">
         <div className="bg-white rounded-2xl shadow-xl shadow-black/15 border border-gray-100 p-4">
@@ -119,7 +154,7 @@ export default function InstallPrompt() {
           <div className="mt-3 bg-[#007AFF]/5 rounded-xl p-3">
             <p className="text-xs text-gray-600 leading-relaxed">
               Toca <span className="inline-flex items-center gap-0.5 text-[#007AFF] font-semibold"><Share className="w-3 h-3" /> Compartir</span> y luego{' '}
-              <span className="font-semibold text-gray-800">&ldquo;Anadir a pantalla de inicio&rdquo;</span> para instalar la app.
+              <span className="font-semibold text-gray-800">&ldquo;Añadir a pantalla de inicio&rdquo;</span> para instalar la app.
             </p>
           </div>
         </div>

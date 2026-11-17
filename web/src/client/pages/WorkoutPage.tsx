@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { X, ChevronLeft, ChevronRight, Check, Clock, Plus, Minus, Info, Trophy, List, SkipForward } from 'lucide-react'
-import { addPendingSet, flushPendingSets, getLastPerformance } from '../clientApi'
-import type { RoutineExercise } from '../clientApi'
+import { X, ChevronLeft, Check, Clock, Plus, Minus, Info, Trophy, List, SkipForward, Trash2 } from 'lucide-react'
+import {
+  addPendingSet, flushPendingSets, getLastPerformance,
+  getActiveWorkout, saveActiveWorkout, clearActiveWorkout,
+} from '../clientApi'
+import type { RoutineExercise, ActiveWorkoutSnapshot } from '../clientApi'
 
 interface WorkoutState {
   exercises: RoutineExercise[]
@@ -16,33 +19,94 @@ type ExerciseLogs = Record<number, LoggedSet[]>
 function formatTime(s: number) {
   const m = Math.floor(s / 60)
   const sec = s % 60
-  return m > 0 ? `${m}:${sec.toString().padStart(2,'0')}` : `${sec}s`
+  return m > 0 ? `${m}:${sec.toString().padStart(2, '0')}` : `${sec}s`
+}
+
+/** Pitido suave con Web Audio API al terminar el descanso (funciona también en iOS Safari). */
+function playRestBeep() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const now = ctx.currentTime
+    for (const [offset, freq] of [[0, 660], [0.16, 880]] as const) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, now + offset)
+      gain.gain.setValueAtTime(0.0001, now + offset)
+      gain.gain.exponentialRampToValueAtTime(0.16, now + offset + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(now + offset)
+      osc.stop(now + offset + 0.15)
+    }
+    setTimeout(() => { ctx.close().catch(() => {}) }, 500)
+  } catch { /* audio blocked or unavailable */ }
 }
 
 export default function WorkoutPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const state = location.state as WorkoutState | null
+  const navState = location.state as WorkoutState | null
 
-  const [currentIdx, setCurrentIdx] = useState(0)
-  const [exerciseLogs, setExerciseLogs] = useState<ExerciseLogs>({})
+  const [initial] = useState<ActiveWorkoutSnapshot | null>(() => {
+    const saved = getActiveWorkout()
+    if (saved) return saved
+    if (navState?.exercises?.length) {
+      return {
+        exercises: navState.exercises,
+        dayName: navState.dayName || '',
+        focus: navState.focus || '',
+        currentIdx: 0,
+        exerciseLogs: {},
+        sessionId: `ws_${Date.now()}`,
+        startedAt: Date.now(),
+        completedExercises: [],
+      }
+    }
+    return null
+  })
+
+  const exercises = initial?.exercises ?? []
+  const dayName = initial?.dayName ?? ''
+  const focus = initial?.focus ?? ''
+  const [sessionId] = useState(() => initial?.sessionId ?? `ws_${Date.now()}`)
+  const [startedAt] = useState(() => initial?.startedAt ?? Date.now())
+
+  const [currentIdx, setCurrentIdx] = useState(() => Math.min(initial?.currentIdx ?? 0, Math.max(0, exercises.length - 1)))
+  const [exerciseLogs, setExerciseLogs] = useState<ExerciseLogs>(() => initial?.exerciseLogs ?? {})
+  const [completedExercises, setCompletedExercises] = useState<Set<number>>(() => new Set(initial?.completedExercises ?? []))
   const [weight, setWeight] = useState('')
   const [reps, setReps] = useState('')
   const [restSecs, setRestSecs] = useState(0)
   const [isResting, setIsResting] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [showExerciseList, setShowExerciseList] = useState(false)
+  const [showExitDialog, setShowExitDialog] = useState(false)
   const [lastPerf, setLastPerf] = useState<{ weightKg: number; reps: number } | null>(null)
-  const [sessionId] = useState(() => `ws_${Date.now()}`)
-  const [startedAt] = useState(() => Date.now())
   const [finishing, setFinishing] = useState(false)
-  const [completedExercises, setCompletedExercises] = useState<Set<number>>(new Set())
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const exercises = state?.exercises ?? []
   const current = exercises[currentIdx]
   const currentLogs = exerciseLogs[currentIdx] ?? []
   const setsTarget = current?.sets ?? 3
+
+  // Persistir sesión en curso en localStorage
+  useEffect(() => {
+    if (exercises.length === 0) return
+    saveActiveWorkout({
+      exercises,
+      dayName,
+      focus,
+      currentIdx,
+      exerciseLogs,
+      sessionId,
+      startedAt,
+      completedExercises: Array.from(completedExercises),
+    })
+  }, [exercises, dayName, focus, currentIdx, exerciseLogs, sessionId, startedAt, completedExercises])
 
   // Load last performance when exercise changes
   useEffect(() => {
@@ -81,6 +145,7 @@ export default function WorkoutPage() {
             clearInterval(timerRef.current!)
             setIsResting(false)
             if (navigator.vibrate) navigator.vibrate([200, 100, 200])
+            playRestBeep()
             return 0
           }
           return s - 1
@@ -89,6 +154,18 @@ export default function WorkoutPage() {
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [isResting])
+
+  const adjustRest = (delta: number) => {
+    setRestSecs(s => {
+      const next = Math.min(600, s + delta)
+      if (next <= 0) {
+        if (timerRef.current) clearInterval(timerRef.current)
+        setIsResting(false)
+        return 0
+      }
+      return next
+    })
+  }
 
   // Auto-mark exercise as done when sets complete
   useEffect(() => {
@@ -113,7 +190,7 @@ export default function WorkoutPage() {
       exerciseName: current.name ?? current.exerciseId,
       weightKg: w, reps: r,
       setNumber: newLogs.length,
-      sessionId, dayName: state?.dayName ?? '',
+      sessionId, dayName,
     })
 
     // Try to sync immediately (non-blocking)
@@ -128,20 +205,34 @@ export default function WorkoutPage() {
     setRestSecs(current.restSeconds ?? 90)
     setIsResting(true)
     setShowInfo(false)
-  }, [current, weight, reps, currentIdx, exerciseLogs, sessionId, state])
+  }, [current, weight, reps, currentIdx, exerciseLogs, sessionId, dayName])
 
   const totalSetsLogged = Object.values(exerciseLogs).reduce((a, sets) => a + sets.length, 0)
 
   const finishWorkout = async () => {
     setFinishing(true)
     try {
-      await flushPendingSets({ sessionId, dayName: state?.dayName, durationSeconds: Math.round((Date.now() - startedAt) / 1000) })
+      await flushPendingSets({ sessionId, dayName, durationSeconds: Math.round((Date.now() - startedAt) / 1000) })
     } catch {}
+    clearActiveWorkout()
     navigate('/client', { replace: true })
   }
 
+  const discardWorkout = () => {
+    clearActiveWorkout()
+    navigate('/client', { replace: true })
+  }
+
+  const handleCloseTap = () => {
+    if (totalSetsLogged > 0) {
+      setShowExitDialog(true)
+    } else {
+      discardWorkout()
+    }
+  }
+
   const goToExercise = (idx: number) => {
-    if (isResting) { clearInterval(timerRef.current!); setIsResting(false) }
+    if (isResting && timerRef.current) { clearInterval(timerRef.current); setIsResting(false) }
     setShowInfo(false)
     setShowExerciseList(false)
     setCurrentIdx(idx)
@@ -162,7 +253,7 @@ export default function WorkoutPage() {
     if (next >= 0) goToExercise(next)
   }
 
-  if (!state || exercises.length === 0) {
+  if (exercises.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="text-center p-8">
@@ -197,22 +288,25 @@ export default function WorkoutPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 flex-shrink-0">
         <button onClick={() => currentIdx > 0 ? goToExercise(currentIdx - 1) : navigate('/client')}
+          title={currentIdx > 0 ? 'Ejercicio anterior' : 'Volver al inicio (pausa el entrenamiento)'}
           className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 active:bg-white/20 transition-colors">
           <ChevronLeft className="w-5 h-5" />
         </button>
         <div className="text-center">
-          <p className="text-xs text-gray-400 font-medium">{state?.focus || state?.dayName || 'Entrenamiento'}</p>
+          <p className="text-xs text-gray-400 font-medium">{focus || dayName || 'Entrenamiento'}</p>
           <p className="text-sm font-bold">
             {currentIdx + 1}<span className="text-gray-500 font-normal"> / {exercises.length}</span>
-            <span className="text-gray-600 ml-2 text-xs">{totalSetsLogged} series totales</span>
+            <span className="text-gray-500 ml-2 text-xs">{totalSetsLogged} series totales</span>
           </p>
         </div>
         <div className="flex gap-1.5">
           <button onClick={() => setShowExerciseList(!showExerciseList)}
+            aria-label="Lista de ejercicios"
             className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${showExerciseList ? 'bg-[#007AFF]/30 text-[#007AFF]' : 'bg-white/10 active:bg-white/20'}`}>
             <List className="w-5 h-5" />
           </button>
-          <button onClick={finishWorkout}
+          <button onClick={handleCloseTap}
+            aria-label="Salir o terminar entrenamiento"
             className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${finishing ? 'bg-green-500/20' : 'bg-white/10 active:bg-white/20'}`}>
             {finishing ? <Check className="w-5 h-5 text-green-400" /> : <X className="w-5 h-5" />}
           </button>
@@ -241,10 +335,10 @@ export default function WorkoutPage() {
                   <p className={`text-sm font-medium truncate ${isDone ? 'text-green-400' : 'text-white'}`}>
                     {ex.name ?? ex.exerciseId}
                   </p>
-                  <p className="text-xs text-gray-500">{logs.length}/{target} series</p>
+                  <p className="text-xs text-gray-400">{logs.length}/{target} series</p>
                 </div>
                 {isDone && <span className="text-xs text-green-500 font-medium">✓ Hecho</span>}
-                {!isDone && !isCurrent && <span className="text-xs text-gray-600">Pendiente</span>}
+                {!isDone && !isCurrent && <span className="text-xs text-gray-500">Pendiente</span>}
               </button>
             )
           })}
@@ -271,23 +365,24 @@ export default function WorkoutPage() {
       {/* Exercise name + muscle */}
       <div className="px-5 pb-3 flex-shrink-0">
         <div className="flex items-start justify-between gap-2">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-xl font-bold leading-tight">{current?.name ?? current?.exerciseId ?? 'Ejercicio'}</h2>
             {current?.muscleGroup && (
               <p className="text-sm text-gray-400 mt-0.5 capitalize">{current.muscleGroup}</p>
             )}
           </div>
           <button onClick={() => setShowInfo(!showInfo)}
+            aria-label="Ver instrucciones"
             className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${showInfo ? 'bg-[#007AFF]/30 text-[#007AFF]' : 'bg-white/10 text-gray-400'}`}>
             <Info className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* GIF */}
+      {/* GIF / Image */}
       <div className="mx-4 rounded-2xl bg-gray-800 overflow-hidden flex-shrink-0" style={{ height: '160px' }}>
         {current?.mediaUrl ? (
-          <img src={current.mediaUrl} alt={current.name ?? ''} className="w-full h-full object-contain" />
+          <img src={current.mediaUrl} alt={current.name ?? ''} className="w-full h-full object-contain p-1" />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2">
             <Trophy className="w-12 h-12 text-gray-600" />
@@ -297,23 +392,36 @@ export default function WorkoutPage() {
       </div>
 
       {/* Instructions (collapsible) */}
-      {showInfo && current?.instructions && (
-        <div className="mx-4 mt-2 bg-gray-800/80 rounded-2xl p-4 flex-shrink-0">
-          <p className="text-xs text-gray-400 leading-relaxed">{current.instructions}</p>
+      {showInfo && (current?.instructions || current?.notes) && (
+        <div className="mx-4 mt-2 bg-gray-800/80 rounded-2xl p-4 flex-shrink-0 max-h-36 overflow-y-auto space-y-2">
+          {current.notes && (
+            <p className="text-xs text-blue-300 font-medium">Nota del coach: {current.notes}</p>
+          )}
+          {current.instructions && (
+            <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-line">{current.instructions}</p>
+          )}
         </div>
       )}
 
       {/* Rest timer */}
       {isResting && (
-        <div className="mx-4 mt-3 bg-[#007AFF]/20 border border-[#007AFF]/30 rounded-2xl px-4 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="mx-4 mt-3 bg-[#007AFF]/20 border border-[#007AFF]/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-2 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-[#007AFF]" />
-            <span className="text-[#007AFF] font-semibold text-sm">Descansando</span>
+            <span className="text-[#007AFF] font-semibold text-sm">Descanso</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold text-[#007AFF] tabular-nums">{formatTime(restSecs)}</span>
-            <button onClick={() => { clearInterval(timerRef.current!); setIsResting(false); setRestSecs(0) }}
-              className="text-xs bg-[#007AFF] text-white px-3 py-1.5 rounded-lg font-bold active:scale-95 transition-transform">
+          <div className="flex items-center gap-2">
+            <button onClick={() => adjustRest(-15)}
+              className="px-2 py-1 rounded-lg bg-white/10 text-xs font-semibold text-gray-200 active:scale-95">
+              -15s
+            </button>
+            <span className="text-xl font-bold text-[#007AFF] tabular-nums min-w-[3.2rem] text-center">{formatTime(restSecs)}</span>
+            <button onClick={() => adjustRest(15)}
+              className="px-2 py-1 rounded-lg bg-white/10 text-xs font-semibold text-gray-200 active:scale-95">
+              +15s
+            </button>
+            <button onClick={() => { if (timerRef.current) clearInterval(timerRef.current); setIsResting(false); setRestSecs(0) }}
+              className="text-xs bg-[#007AFF] text-white px-3 py-1.5 rounded-lg font-bold active:scale-95 transition-transform ml-1">
               Saltar
             </button>
           </div>
@@ -322,14 +430,14 @@ export default function WorkoutPage() {
 
       {/* Last performance + series dots */}
       <div className="mx-4 mt-3 flex items-center justify-between flex-shrink-0">
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-gray-400">
           {lastPerf
-            ? <span>Anterior: <span className="text-gray-300 font-semibold">{lastPerf.weightKg}kg x {lastPerf.reps}</span></span>
-            : <span className="text-gray-600">Sin registro previo</span>
+            ? <span>Anterior: <span className="text-gray-200 font-semibold">{lastPerf.weightKg}kg x {lastPerf.reps}</span></span>
+            : <span className="text-gray-500">Sin registro previo</span>
           }
         </div>
         <div className="flex gap-1.5 items-center">
-          <span className="text-xs text-gray-500 mr-1">{setsLogged}/{setsTarget}</span>
+          <span className="text-xs text-gray-400 mr-1">{setsLogged}/{setsTarget}</span>
           {Array.from({ length: setsTarget }).map((_, i) => (
             <div key={i} className={`rounded-full transition-all ${
               i < setsLogged
@@ -369,14 +477,14 @@ export default function WorkoutPage() {
           <div>
             <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mb-1.5">Peso (kg)</p>
             <div className="flex items-center gap-1.5">
-              <button onPointerDown={e => { e.preventDefault(); setWeight(w => String(Math.max(0, Math.round((parseFloat(w||'0') - 2.5)*10)/10))) }}
+              <button onPointerDown={e => { e.preventDefault(); setWeight(w => String(Math.max(0, Math.round((parseFloat(w || '0') - 2.5) * 10) / 10))) }}
                 className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Minus className="w-4 h-4" />
               </button>
               <input type="number" inputMode="decimal" value={weight}
                 onChange={e => setWeight(e.target.value)}
                 className="flex-1 bg-gray-700 text-center text-white font-bold text-lg rounded-xl py-2.5 outline-none border-none min-w-0 w-0" />
-              <button onPointerDown={e => { e.preventDefault(); setWeight(w => String(Math.round((parseFloat(w||'0') + 2.5)*10)/10)) }}
+              <button onPointerDown={e => { e.preventDefault(); setWeight(w => String(Math.round((parseFloat(w || '0') + 2.5) * 10) / 10)) }}
                 className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
@@ -386,14 +494,14 @@ export default function WorkoutPage() {
           <div>
             <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mb-1.5">Reps</p>
             <div className="flex items-center gap-1.5">
-              <button onPointerDown={e => { e.preventDefault(); setReps(r => String(Math.max(1, parseInt(r||'1') - 1))) }}
+              <button onPointerDown={e => { e.preventDefault(); setReps(r => String(Math.max(1, parseInt(r || '1') - 1))) }}
                 className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Minus className="w-4 h-4" />
               </button>
               <input type="number" inputMode="numeric" value={reps}
                 onChange={e => setReps(e.target.value)}
                 className="flex-1 bg-gray-700 text-center text-white font-bold text-lg rounded-xl py-2.5 outline-none border-none min-w-0 w-0" />
-              <button onPointerDown={e => { e.preventDefault(); setReps(r => String(parseInt(r||'0') + 1)) }}
+              <button onPointerDown={e => { e.preventDefault(); setReps(r => String(parseInt(r || '0') + 1)) }}
                 className="w-10 h-10 rounded-xl bg-gray-700 flex items-center justify-center active:bg-gray-600 transition-colors flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
@@ -420,7 +528,7 @@ export default function WorkoutPage() {
             Siguiente ejercicio
           </button>
         )}
-        {!completedExercises.has(currentIdx) && currentIdx < exercises.length - 1 && (
+        {!completedExercises.has(currentIdx) && exercises.length > 1 && (
           <button onClick={skipToNext}
             className="flex-1 bg-gray-800 text-white py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-1.5 active:bg-gray-700 transition-colors text-sm">
             <SkipForward className="w-4 h-4" /> Saltar (máquina ocupada)
@@ -453,6 +561,43 @@ export default function WorkoutPage() {
           )
         })}
       </div>
+
+      {/* Exit / Discard confirmation dialog */}
+      {showExitDialog && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+             onClick={() => setShowExitDialog(false)}>
+          <div className="w-full max-w-sm bg-gray-800 border border-gray-700 rounded-3xl p-5 space-y-3"
+               onClick={e => e.stopPropagation()}>
+            <div>
+              <h3 className="text-lg font-bold text-white">¿Qué quieres hacer con esta sesión?</h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Llevas {totalSetsLogged} serie{totalSetsLogged === 1 ? '' : 's'} registrada{totalSetsLogged === 1 ? '' : 's'}. Puedes guardarla en tu historial o descartarla.
+              </p>
+            </div>
+            <button
+              onClick={finishWorkout}
+              disabled={finishing}
+              className="w-full py-3.5 rounded-2xl bg-[#007AFF] text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
+            >
+              <Trophy className="w-4 h-4" />
+              {finishing ? 'Guardando...' : 'Guardar y terminar entrenamiento'}
+            </button>
+            <button
+              onClick={() => setShowExitDialog(false)}
+              className="w-full py-3.5 rounded-2xl bg-gray-700 text-white font-semibold text-sm active:scale-[0.98]"
+            >
+              Seguir entrenando
+            </button>
+            <button
+              onClick={discardWorkout}
+              className="w-full py-3 rounded-2xl bg-red-500/15 text-red-400 font-semibold text-sm flex items-center justify-center gap-2 active:bg-red-500/25"
+            >
+              <Trash2 className="w-4 h-4" />
+              Descartar entrenamiento en curso
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

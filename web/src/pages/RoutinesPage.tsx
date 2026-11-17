@@ -7,7 +7,7 @@ import type { Athlete, Exercise, RoutineDay, RoutineExercise } from '../api'
 import {
   ChevronDown, Search, Plus, X, Save, Loader2, Dumbbell,
   ChevronUp, GripVertical, Info, SlidersHorizontal, Users, FileText, Trash2, Copy,
-  ArrowUp, ArrowDown, Minus, Undo2, AlertCircle, CopyPlus, Timer
+  ArrowUp, ArrowDown, Minus, Undo2, AlertCircle, CopyPlus, Timer, Check
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -69,24 +69,40 @@ function exerciseImg(ex: Exercise): string {
   return ''
 }
 
+const PICKER_MUSCLES = ['Todos', 'Pecho', 'Espalda', 'Hombros', 'Piernas', 'Glúteos', 'Bíceps', 'Tríceps', 'Abdomen', 'Cardio']
+const PICKER_EQUIPMENTS = ['Barra', 'Mancuernas', 'Máquina', 'Polea / Cable', 'Peso Corporal', 'Kettlebell', 'Bandas Elásticas', 'Barra EZ', 'Smith Machine']
+
 // ── Exercise picker modal ──────────────────────────────────────────────────────
 function ExercisePicker({
-  onSelect, onClose
-}: { onSelect: (ex: Exercise) => void; onClose: () => void }) {
+  onSelect, onClose, initialIds = []
+}: { onSelect: (ex: Exercise) => void; onClose: () => void; initialIds?: string[] }) {
   const [search, setSearch]     = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [category, setCategory] = useState('')
   const [muscle, setMuscle]     = useState('')
+  const [equipment, setEquipment] = useState('')
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [loading, setLoading]   = useState(false)
   const [page, setPage]         = useState(1)
   const [pages, setPages]       = useState(1)
   const [total, setTotal]       = useState(0)
   const [hoveredEx, setHoveredEx] = useState<Exercise | null>(null)
+  const [addedIds, setAddedIds] = useState<Record<string, number>>(() => {
+    const map: Record<string, number> = {}
+    for (const id of initialIds) map[id] = (map[id] ?? 0) + 1
+    return map
+  })
+  const [sessionAdded, setSessionAdded] = useState(0)
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250)
+    return () => clearTimeout(t)
+  }, [search])
 
   const load = useCallback(async (p = 1) => {
     setLoading(true)
     try {
-      const res = await getExercises({ search, category, muscle_group: muscle, page: p, limit: 20 })
+      const res = await getExercises({ search: debouncedSearch, category, muscle_group: muscle, equipment, page: p, limit: 20 })
       // Handle both array and paginated response shapes
       if (Array.isArray(res)) {
         setExercises(res as unknown as Exercise[])
@@ -98,21 +114,27 @@ function ExercisePicker({
       }
     } catch { /* ignore */ }
     finally { setLoading(false) }
-  }, [search, category, muscle])
+  }, [debouncedSearch, category, muscle, equipment])
 
   useEffect(() => { setPage(1); load(1) }, [load])
 
+  const pick = (ex: Exercise) => {
+    onSelect(ex)
+    setAddedIds(prev => ({ ...prev, [ex.id]: (prev[ex.id] ?? 0) + 1 }))
+    setSessionAdded(c => c + 1)
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-gray-900/40 backdrop-blur-sm"
          onClick={onClose}>
-      <div className="w-full max-w-3xl bg-white border border-gray-300 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]"
+      <div className="w-full max-w-3xl bg-white border border-gray-300 rounded-2xl shadow-2xl flex flex-col max-h-[90vh]"
            onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center gap-2 flex-wrap">
             <Dumbbell className="w-5 h-5 text-blue-600" />
             <h3 className="font-semibold text-gray-900">Catálogo de Ejercicios</h3>
-            <span className="badge-blue">{total} ejercicios</span>
+            <span className="badge-blue">{total.toLocaleString()} ejercicios</span>
           </div>
           <button id="btn-close-picker" onClick={onClose} className="btn-ghost p-1.5">
             <X className="w-4 h-4" />
@@ -120,22 +142,31 @@ function ExercisePicker({
         </div>
 
         {/* Filters */}
-        <div className="px-6 py-4 border-b border-gray-200 space-y-3">
+        <div className="px-4 sm:px-6 py-3 border-b border-gray-200 space-y-2.5">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
               id="exercise-search"
-              className="input pl-9"
-              placeholder="Buscar ejercicio..."
+              className="input pl-9 pr-9"
+              placeholder="Buscar ejercicio (ej. press banca, sentadilla, curl)..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               autoFocus
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <div className="flex gap-3">
-            <div className="flex-1 relative">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="relative">
               <select
-                className="input appearance-none pr-8"
+                className="input appearance-none pr-8 py-2 text-xs"
                 value={category}
                 onChange={e => setCategory(e.target.value)}
               >
@@ -145,18 +176,50 @@ function ExercisePicker({
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
             </div>
-            <div className="flex-1 relative">
+            <div className="relative">
               <select
-                className="input appearance-none pr-8"
+                className="input appearance-none pr-8 py-2 text-xs"
                 value={muscle}
                 onChange={e => setMuscle(e.target.value)}
               >
                 <option value="">Todos los músculos</option>
-                {['Pecho','Espalda','Hombros','Bíceps','Tríceps','Cuádriceps','Isquiotibiales','Glúteos','Abdomen','Gemelos'].map(m =>
+                {['Pecho','Espalda','Hombros','Piernas','Bíceps','Tríceps','Cuádriceps','Isquiotibiales','Glúteos','Abdomen','Gemelos','Antebrazos'].map(m =>
                   <option key={m} value={m}>{m}</option>)}
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
             </div>
+            <div className="relative">
+              <select
+                className="input appearance-none pr-8 py-2 text-xs"
+                value={equipment}
+                onChange={e => setEquipment(e.target.value)}
+              >
+                <option value="">Todo el equipo</option>
+                {PICKER_EQUIPMENTS.map(eq =>
+                  <option key={eq} value={eq}>{eq}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+            </div>
+          </div>
+          {/* Quick muscle chips */}
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+            {PICKER_MUSCLES.map(m => {
+              const val = m === 'Todos' ? '' : m
+              const active = muscle === val
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMuscle(val)}
+                  className={clsx(
+                    'px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 transition-colors',
+                    active ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  )}
+                >
+                  {m}
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -175,37 +238,50 @@ function ExercisePicker({
               </div>
             ) : (
               <ul>
-                {exercises.map(ex => (
-                  <li key={ex.id}
-                      className={clsx(
-                        'flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-gray-200',
-                        'hover:bg-gray-100 transition-colors',
-                        hoveredEx?.id === ex.id && 'bg-gray-100'
-                      )}
-                      onMouseEnter={() => setHoveredEx(ex)}
-                      onMouseLeave={() => setHoveredEx(null)}
-                      onClick={() => onSelect(ex)}
-                  >
-                    {/* Thumbnail */}
-                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                      {exerciseImg(ex) ? (
-                        <img src={exerciseImg(ex)} alt={ex.name}
-                             className="w-full h-full object-cover"
-                             onError={(e) => { e.currentTarget.style.display='none' }} />
-                      ) : (
-                        <Dumbbell className="w-4 h-4 text-gray-500" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{ex.name}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="badge-purple text-[10px] py-0">{ex.muscleGroup || ex.targetMuscle}</span>
-                        <span className="badge-gray text-[10px] py-0">{ex.equipment}</span>
+                {exercises.map(ex => {
+                  const count = addedIds[ex.id] ?? 0
+                  return (
+                    <li key={ex.id}
+                        className={clsx(
+                          'flex items-center gap-3 px-4 py-3 cursor-pointer border-b border-gray-200',
+                          'hover:bg-blue-50/50 transition-colors',
+                          hoveredEx?.id === ex.id && 'bg-gray-50',
+                          count > 0 && 'bg-emerald-50/40'
+                        )}
+                        onMouseEnter={() => setHoveredEx(ex)}
+                        onMouseLeave={() => setHoveredEx(null)}
+                        onClick={() => pick(ex)}
+                    >
+                      {/* Thumbnail */}
+                      <div className="w-11 h-11 rounded-lg overflow-hidden bg-slate-50 border border-gray-100 shrink-0 flex items-center justify-center">
+                        {exerciseImg(ex) ? (
+                          <img src={exerciseImg(ex)} alt={ex.name} loading="lazy"
+                               className="w-full h-full object-contain"
+                               onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                        ) : (
+                          <Dumbbell className="w-4 h-4 text-gray-500" />
+                        )}
                       </div>
-                    </div>
-                    <Plus className="w-4 h-4 text-gray-500 shrink-0" />
-                  </li>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{ex.name}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span className="badge-purple text-[10px] py-0">{ex.muscleGroup || ex.targetMuscle}</span>
+                          <span className="badge-gray text-[10px] py-0">{ex.equipment}</span>
+                        </div>
+                      </div>
+                      {count > 0 ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold shrink-0">
+                          <Check className="w-3.5 h-3.5" />
+                          {count > 1 ? `Agregado ×${count}` : 'Agregado'}
+                        </span>
+                      ) : (
+                        <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                          <Plus className="w-4 h-4" />
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             )}
 
@@ -227,11 +303,11 @@ function ExercisePicker({
 
           {/* Preview panel — desktop only */}
           {hoveredEx && (
-            <div className="hidden lg:flex w-56 border-l border-gray-200 p-4 flex-col gap-3 slide-in overflow-hidden">
-              <div className="aspect-video rounded-xl overflow-hidden bg-gray-100">
-                {hoveredEx.imageUrls?.[0] ? (
-                  <img src={hoveredEx.imageUrls[0]} alt={hoveredEx.name}
-                       className="w-full h-full object-cover" />
+            <div className="hidden lg:flex w-60 border-l border-gray-200 p-4 flex-col gap-3 slide-in overflow-y-auto">
+              <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-50 border border-gray-100">
+                {exerciseImg(hoveredEx) ? (
+                  <img src={exerciseImg(hoveredEx)} alt={hoveredEx.name}
+                       className="w-full h-full object-contain p-1" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <Dumbbell className="w-8 h-8 text-gray-500" />
@@ -242,7 +318,7 @@ function ExercisePicker({
                 <p className="font-semibold text-gray-900 text-sm leading-tight">{hoveredEx.name}</p>
                 <p className="text-xs text-gray-500 mt-1">{hoveredEx.category} · {hoveredEx.equipment}</p>
               </div>
-              <p className="text-xs text-gray-500 leading-relaxed line-clamp-4">
+              <p className="text-xs text-gray-500 leading-relaxed line-clamp-5">
                 {hoveredEx.instructions?.split('\n')[0] || ''}
               </p>
               <div className="flex flex-wrap gap-1">
@@ -250,6 +326,18 @@ function ExercisePicker({
               </div>
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 sm:px-6 py-3 border-t border-gray-200 bg-gray-50 rounded-b-2xl flex items-center justify-between gap-3">
+          <p className="text-xs text-gray-500">
+            {sessionAdded > 0
+              ? `${sessionAdded} ejercicio${sessionAdded === 1 ? '' : 's'} agregado${sessionAdded === 1 ? '' : 's'} en esta selección`
+              : 'Toca uno o varios ejercicios para agregarlos'}
+          </p>
+          <button type="button" onClick={onClose} className="btn-primary py-2 px-5">
+            Listo
+          </button>
         </div>
       </div>
     </div>
@@ -531,9 +619,13 @@ export default function RoutinesPage() {
       sets: ex.defaultSets,
       reps: ex.defaultReps,
       name: ex.name,
+      mediaUrl: exerciseImg(ex) || undefined,
+      muscleGroup: ex.muscleGroup || ex.targetMuscle,
     }
-    updateDay({ ...currentDay, exercises: [...currentDay.exercises, item] })
-    setShowPicker(false)
+    setSchedule(s => {
+      const day = s[selectedDay] ?? { dayName: selectedDay, focus: '', exercises: [] }
+      return { ...s, [selectedDay]: { ...day, exercises: [...day.exercises, item] } }
+    })
   }
 
   const updateExercise = (idx: number, updated: RoutineExercise) => {
@@ -989,7 +1081,11 @@ export default function RoutinesPage() {
       )}
 
       {showPicker && (
-        <ExercisePicker onSelect={addExercise} onClose={() => setShowPicker(false)} />
+        <ExercisePicker
+          onSelect={addExercise}
+          onClose={() => setShowPicker(false)}
+          initialIds={currentDay.exercises.map(e => e.exerciseId)}
+        />
       )}
       
       {showAssignModal && (

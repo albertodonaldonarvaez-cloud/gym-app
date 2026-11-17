@@ -2,12 +2,13 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import {
   LayoutDashboard, Calendar, Dumbbell, LogOut, ChevronRight,
-  User, Users, UserCheck, Settings, AlertTriangle, Mail, Loader2, Menu, X
+  User, Users, UserCheck, Settings, AlertTriangle, Mail, Loader2, Menu, X, Download
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useState, useEffect } from 'react'
 import ProfileModal from './ProfileModal'
 import TermsGate from './TermsGate'
+import { canInstallPWA, triggerInstallPWA } from '../client/components/InstallPrompt'
 
 const navItems = [
   { to: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard',      id: 'nav-dashboard',    roles: ['ADMIN', 'COACH'] },
@@ -27,7 +28,14 @@ export default function Layout() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [emailVerified, setEmailVerified] = useState(user?.emailVerified ?? true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [canInstall, setCanInstall] = useState(() => canInstallPWA())
   const BASE = import.meta.env.VITE_API_URL ?? ''
+
+  useEffect(() => {
+    const sync = () => setCanInstall(canInstallPWA())
+    window.addEventListener('gymaura-install-available', sync)
+    return () => window.removeEventListener('gymaura-install-available', sync)
+  }, [])
 
   // Close sidebar on route change (mobile)
   useEffect(() => { setSidebarOpen(false) }, [location.pathname])
@@ -114,6 +122,16 @@ export default function Layout() {
 
       {/* User section */}
       <div className="px-3 py-4 border-t border-gray-200 space-y-1">
+        {canInstall && (
+          <button
+            type="button"
+            onClick={() => triggerInstallPWA()}
+            className="nav-item w-full text-blue-600 hover:bg-blue-50"
+          >
+            <Download className="w-4 h-4" />
+            Instalar App
+          </button>
+        )}
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-50 cursor-pointer" onClick={() => { setProfileOpen(true); setSidebarOpen(false) }}>
           <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0">
             {initials}
@@ -213,6 +231,7 @@ export default function Layout() {
           onProfileUpdated={handleProfileUpdated}
         />
       )}
+      <TermsGate />
     </div>
   )
 }

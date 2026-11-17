@@ -1,15 +1,16 @@
 import { useEffect, useState, useCallback } from 'react'
-import { getExercises } from '../api'
+import { getExercises, syncExercisesCatalog } from '../api'
 import type { Exercise } from '../api'
 import {
   Search, Dumbbell, ChevronLeft, ChevronRight, Filter, X,
-  ImageOff, Loader2, ChevronDown, PlayCircle, Plus, Edit2, Trash2, Video
+  ImageOff, Loader2, ChevronDown, PlayCircle, Plus, Edit2, Trash2, Video, RefreshCw
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../AuthContext'
 
 const CATEGORIES = ['Fuerza','Cardio','Estiramiento','Pliométricos','Powerlifting','Halterofilia','Strongman']
 const MUSCLES    = ['Pecho','Espalda','Hombros','Bíceps','Tríceps','Cuádriceps','Isquiotibiales','Glúteos','Abdomen','Gemelos','Antebrazos','Abductores','Aductores']
+const EQUIPMENTS = ['Barra','Mancuernas','Máquina','Polea / Cable','Peso Corporal','Kettlebell','Bandas Elásticas','Barra EZ','Smith Machine','Pelota de Ejercicio','Sin Equipamiento']
 
 const BASE = import.meta.env.VITE_API_URL ?? ''
 
@@ -28,26 +29,38 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
   const [imgIdx, setImgIdx] = useState(0)
   const [imgError, setImgError] = useState(false)
   const imgs = exercise.imageUrls?.length ? exercise.imageUrls : exercise.mediaUrl ? [exercise.mediaUrl] : []
+  const currentUrl = imgs[imgIdx] || ''
+  const isGif = /\.gif(\?|$)/i.test(currentUrl)
 
   return (
     <div
       id={`ex-card-${exercise.id}`}
       onClick={onClick}
-      className="card p-0 overflow-hidden cursor-pointer group hover:border-brand-500/30 hover:shadow-lg hover:shadow-brand-500/5 transition-all duration-300 fade-in"
+      className="card p-0 overflow-hidden cursor-pointer group hover:border-blue-500/40 hover:shadow-lg hover:shadow-blue-500/5 transition-all duration-300 fade-in"
     >
       {/* Image */}
-      <div className="relative aspect-video bg-gray-100 overflow-hidden">
+      <div className="relative aspect-[4/3] bg-slate-50 overflow-hidden">
         {imgs.length > 0 && !imgError && !getEmbedUrl(imgs[0]) ? (
           <>
             <img
-              src={imgs[imgIdx]}
+              src={currentUrl}
               alt={exercise.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              loading="lazy"
+              className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-500"
               onError={() => {
-                if (imgIdx < imgs.length - 1) setImgIdx(i => i+1)
+                if (imgIdx < imgs.length - 1) setImgIdx(i => i + 1)
                 else setImgError(true)
               }}
             />
+            {isGif ? (
+              <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-blue-600/90 text-white text-[10px] font-bold tracking-wide shadow-sm">
+                GIF
+              </span>
+            ) : imgs.length > 1 ? (
+              <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-gray-900/70 text-white text-[10px] font-semibold">
+                {imgs.length} fotos
+              </span>
+            ) : null}
             {imgs.length > 1 && (
               <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 {imgs.map((_, i) => (
@@ -55,19 +68,19 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
                     onClick={e => { e.stopPropagation(); setImgIdx(i) }}
                     className={clsx(
                       'w-1.5 h-1.5 rounded-full transition-colors',
-                      i === imgIdx ? 'bg-white' : 'bg-white/40'
+                      i === imgIdx ? 'bg-blue-600' : 'bg-gray-400/60'
                     )}
                   />
                 ))}
               </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <PlayCircle className="w-6 h-6 text-gray-900/80 drop-shadow" />
+              <PlayCircle className="w-6 h-6 text-blue-600 bg-white/80 rounded-full drop-shadow" />
             </div>
           </>
         ) : getEmbedUrl(exercise.mediaUrl) ? (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400 bg-gray-200">
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400 bg-gray-100">
             <Video className="w-8 h-8 opacity-50" />
             <span className="text-xs opacity-70">Video disponible</span>
           </div>
@@ -94,10 +107,22 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
   )
 }
 
+function parseInstructionSteps(raw?: string | null): string[] {
+  if (!raw) return []
+  const cleaned = raw.trim()
+  if (!cleaned) return []
+  const lines = cleaned.includes('\n')
+    ? cleaned.split('\n')
+    : cleaned.split(/\.\s+(?=[A-ZÁÉÍÓÚÑ¿])/).map((s, i, a) => (i < a.length - 1 && !s.endsWith('.') ? s + '.' : s))
+  return lines
+    .map(s => s.replace(/^\s*(?:\d+[.):\-]\s*)+/, '').trim())
+    .filter(Boolean)
+}
+
 function ExerciseModal({ exercise, onClose, onEdit, onDelete, canEdit }: { exercise: Exercise; onClose: () => void; onEdit?: () => void; onDelete?: () => void; canEdit?: boolean }) {
   const [imgIdx, setImgIdx] = useState(0)
   const imgs = exercise.imageUrls?.length ? exercise.imageUrls : exercise.mediaUrl && !getEmbedUrl(exercise.mediaUrl) ? [exercise.mediaUrl] : []
-  const instructions = exercise.instructions?.split('\n').filter(Boolean) ?? []
+  const instructions = parseInstructionSteps(exercise.instructions)
   
   const embedUrl = getEmbedUrl(exercise.mediaUrl)
 
@@ -107,7 +132,7 @@ function ExerciseModal({ exercise, onClose, onEdit, onDelete, canEdit }: { exerc
       <div className="w-full max-w-2xl bg-white border border-gray-300 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
            onClick={e => e.stopPropagation()}>
         {/* Header / Media */}
-        <div className="relative aspect-video bg-gray-100">
+        <div className="relative aspect-video bg-slate-50">
           {embedUrl ? (
             <iframe
               src={embedUrl}
@@ -116,7 +141,12 @@ function ExerciseModal({ exercise, onClose, onEdit, onDelete, canEdit }: { exerc
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             />
           ) : imgs.length > 0 && imgs[imgIdx] ? (
-            <img src={imgs[imgIdx]} alt={exercise.name} className="w-full h-full object-cover" />
+            <img
+              src={imgs[imgIdx]}
+              alt={exercise.name}
+              className="w-full h-full object-contain p-3"
+              onError={() => { if (imgIdx < imgs.length - 1) setImgIdx(i => i + 1) }}
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400">
               <ImageOff className="w-12 h-12 opacity-20" />
@@ -419,9 +449,13 @@ export default function ExercisesPage() {
   const [page, setPage]         = useState(1)
   const [loading, setLoading]   = useState(false)
   const [search, setSearch]     = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [category, setCategory] = useState('')
   const [muscle, setMuscle]     = useState('')
   const [equipment, setEquipment] = useState('')
+  const [hasMedia, setHasMedia] = useState(false)
+  const [syncing, setSyncing]   = useState(false)
+  const [syncMsg, setSyncMsg]   = useState('')
   
   const [selected, setSelected] = useState<Exercise | null>(null)
   const [showFilters, setShowFilters] = useState(false)
@@ -430,10 +464,23 @@ export default function ExercisesPage() {
   const [showForm, setShowForm] = useState(false)
   const [editExercise, setEditExercise] = useState<Exercise | null>(null)
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250)
+    return () => clearTimeout(t)
+  }, [search])
+
   const load = useCallback(async (p = 1) => {
     setLoading(true)
     try {
-      const res = await getExercises({ search, category, muscle_group: muscle, page: p, limit: 24 })
+      const res = await getExercises({
+        search: debouncedSearch,
+        category,
+        muscle_group: muscle,
+        equipment,
+        has_media: hasMedia,
+        page: p,
+        limit: 24,
+      })
       if (Array.isArray(res)) {
         setExercises(res as unknown as Exercise[])
         setTotal((res as unknown as Exercise[]).length)
@@ -445,9 +492,23 @@ export default function ExercisesPage() {
       }
     } catch { /* ignore */ }
     finally { setLoading(false) }
-  }, [search, category, muscle])
+  }, [debouncedSearch, category, muscle, equipment, hasMedia])
 
   useEffect(() => { setPage(1); load(1) }, [load])
+
+  const handleSyncCatalog = async () => {
+    setSyncing(true); setSyncMsg('')
+    try {
+      const r = await syncExercisesCatalog()
+      setSyncMsg(`Catálogo actualizado: ${r.total.toLocaleString()} ejercicios (+${r.created} nuevos, ${r.updated + r.repaired} normalizados)`)
+      load(1)
+      setPage(1)
+    } catch (err: any) {
+      setSyncMsg(err?.message || 'Error al sincronizar el catálogo')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const handleDelete = async (ex: Exercise, force = false): Promise<void> => {
     if (!token) return
@@ -477,12 +538,12 @@ export default function ExercisesPage() {
     }
   }
 
-  const activeFilters = [category, muscle, equipment].filter(Boolean).length
+  const activeFilters = [category, muscle, equipment, hasMedia ? 'media' : ''].filter(Boolean).length
 
   return (
     <div className="space-y-6 fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Catálogo de Ejercicios</h1>
           <p className="text-gray-500 text-sm mt-1">
@@ -491,15 +552,35 @@ export default function ExercisesPage() {
         </div>
         
         {isCoach && (
-          <button 
-            onClick={() => { setEditExercise(null); setShowForm(true); }}
-            className="btn-primary shadow-lg shadow-brand-500/20 shrink-0"
-          >
-            <Plus className="w-4 h-4 mr-1" />
-            Nuevo Ejercicio
-          </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              onClick={handleSyncCatalog}
+              disabled={syncing}
+              className="btn-secondary"
+              title="Descargar y normalizar catálogo completo en español"
+            >
+              <RefreshCw className={clsx('w-4 h-4', syncing && 'animate-spin')} />
+              {syncing ? 'Sincronizando...' : 'Sincronizar catálogo'}
+            </button>
+            <button 
+              onClick={() => { setEditExercise(null); setShowForm(true); }}
+              className="btn-primary shadow-lg shadow-blue-500/20"
+            >
+              <Plus className="w-4 h-4" />
+              Nuevo Ejercicio
+            </button>
+          </div>
         )}
       </div>
+
+      {syncMsg && (
+        <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-sm flex items-center justify-between gap-2 fade-in">
+          <span>{syncMsg}</span>
+          <button onClick={() => setSyncMsg('')} className="text-blue-600 hover:text-blue-800">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Search + filters */}
       <div className="card space-y-4">
@@ -508,21 +589,31 @@ export default function ExercisesPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
               id="main-exercise-search"
-              className="input pl-9"
+              className="input pl-9 pr-9"
               placeholder="Buscar por nombre, músculo o equipamiento..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+            {search && (
+              <button
+                type="button"
+                aria-label="Limpiar búsqueda"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
           <button
             id="btn-toggle-filters"
             onClick={() => setShowFilters(!showFilters)}
-            className={clsx('btn-secondary relative', showFilters && 'border-brand-500/40 text-blue-600')}
+            className={clsx('btn-secondary relative', showFilters && 'border-blue-500/40 text-blue-600 bg-blue-50')}
           >
             <Filter className="w-4 h-4" />
             Filtros
             {activeFilters > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-brand-500 text-gray-900 text-[9px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shadow">
                 {activeFilters}
               </span>
             )}
@@ -530,7 +621,7 @@ export default function ExercisesPage() {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 border-t border-gray-200 fade-in">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-3 border-t border-gray-200 fade-in">
             {/* Category */}
             <div>
               <label className="label">Categoría</label>
@@ -555,11 +646,32 @@ export default function ExercisesPage() {
                 <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
               </div>
             </div>
-            {/* Clear */}
-            <div className="flex items-end">
+            {/* Equipment */}
+            <div>
+              <label className="label">Equipamiento</label>
+              <div className="relative">
+                <select className="input appearance-none pr-8" value={equipment}
+                        onChange={e => setEquipment(e.target.value)}>
+                  <option value="">Todos</option>
+                  {EQUIPMENTS.map(eq => <option key={eq} value={eq}>{eq}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+              </div>
+            </div>
+            {/* Media toggle + Clear */}
+            <div className="flex flex-col justify-between gap-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700 font-medium cursor-pointer pt-5">
+                <input
+                  type="checkbox"
+                  checked={hasMedia}
+                  onChange={e => setHasMedia(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
+                />
+                Solo con animación/foto
+              </label>
               {activeFilters > 0 && (
-                <button onClick={() => { setCategory(''); setMuscle(''); setEquipment('') }}
-                        className="btn-ghost text-red-600 hover:text-red-300 hover:bg-red-50">
+                <button onClick={() => { setCategory(''); setMuscle(''); setEquipment(''); setHasMedia(false) }}
+                        className="btn-ghost text-red-600 hover:bg-red-50 self-start px-2 py-1 text-xs">
                   <X className="w-3.5 h-3.5" />
                   Limpiar filtros
                 </button>
@@ -570,14 +682,14 @@ export default function ExercisesPage() {
 
         {/* Quick muscle chips */}
         <div className="flex flex-wrap gap-2 pt-1">
-          {['Pecho','Espalda','Hombros','Piernas','Bíceps','Tríceps','Abdomen','Cardio'].map(chip => (
+          {['Pecho','Espalda','Hombros','Piernas','Glúteos','Bíceps','Tríceps','Abdomen','Cardio'].map(chip => (
             <button key={chip}
                     onClick={() => setMuscle(muscle === chip ? '' : chip)}
                     className={clsx(
-                      'px-3 py-1 rounded-full text-xs font-medium transition-all',
+                      'px-3 py-1.5 rounded-full text-xs font-semibold transition-all',
                       muscle === chip
-                        ? 'bg-brand-500 text-gray-900'
-                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-900'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
                     )}>
               {chip}
             </button>
@@ -595,7 +707,7 @@ export default function ExercisesPage() {
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-500">
           <Dumbbell className="w-12 h-12 opacity-20" />
           <p>Sin resultados para tu búsqueda</p>
-          <button onClick={() => { setSearch(''); setCategory(''); setMuscle('') }}
+          <button onClick={() => { setSearch(''); setCategory(''); setMuscle(''); setEquipment(''); setHasMedia(false) }}
                   className="btn-ghost text-sm">
             Limpiar búsqueda
           </button>
@@ -625,7 +737,7 @@ export default function ExercisesPage() {
                         onClick={() => { setPage(p); load(p) }}
                         className={clsx(
                           'w-9 h-9 rounded-lg text-sm font-medium transition-all',
-                          p === page ? 'bg-brand-600 text-gray-900' : 'text-gray-500 hover:bg-gray-100'
+                          p === page ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'
                         )}>
                   {p}
                 </button>

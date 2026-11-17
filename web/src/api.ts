@@ -113,6 +113,8 @@ export const getExercises = (params?: {
   search?: string
   category?: string
   muscle_group?: string
+  equipment?: string
+  has_media?: boolean
   page?: number
   limit?: number
 }) => {
@@ -120,11 +122,17 @@ export const getExercises = (params?: {
   if (params?.search)       qs.set('search', params.search)
   if (params?.category)     qs.set('category', params.category)
   if (params?.muscle_group) qs.set('muscle_group', params.muscle_group)
+  if (params?.equipment)    qs.set('equipment', params.equipment)
+  if (params?.has_media)    qs.set('has_media', '1')
   if (params?.page)         qs.set('page', String(params.page))
   if (params?.limit)        qs.set('limit', String(params.limit))
   return fetch(`${BASE}/api/exercises?${qs}`, { headers: getHeaders() })
     .then(r => handleResponse<ExercisesResponse>(r))
 }
+
+export const syncExercisesCatalog = () =>
+  fetch(`${BASE}/api/exercises/sync-catalog`, { method: 'POST', headers: getHeaders() })
+    .then(r => handleResponse<{ ok: boolean; created: number; updated: number; repaired: number; total: number }>(r))
 
 // ─── Routine Plans ────────────────────────────────────────────────────────────
 export const getRoutineForAthlete = (athleteId: string) =>

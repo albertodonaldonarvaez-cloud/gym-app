@@ -29,7 +29,7 @@ export interface DaySchedule { dayName: string; focus: string; exercises: Routin
 export interface WeeklyRoutine { id?: string; title?: string; schedule: Record<string, DaySchedule> }
 export interface Exercise {
   id: string; name: string; category: string; muscleGroup: string; equipment: string
-  instructions: string; mediaUrl: string | null; defaultSets: number; defaultReps: number
+  instructions: string; mediaUrl: string | null; imageUrls?: string[]; defaultSets: number; defaultReps: number
 }
 export interface SetLog {
   clientLogId?: string; exerciseId: string; exerciseName: string; weightKg: number; reps: number
@@ -62,13 +62,15 @@ export async function getRoutineMeta() {
 }
 
 export async function getExercises(params?: {
-  page?: number; limit?: number; search?: string; muscle?: string
+  page?: number; limit?: number; search?: string; muscle?: string; equipment?: string; category?: string
 }) {
   const q = new URLSearchParams()
   if (params?.page) q.set('page', String(params.page))
   if (params?.limit) q.set('limit', String(params.limit))
   if (params?.search) q.set('search', params.search)
-  if (params?.muscle) q.set('muscle', params.muscle)
+  if (params?.muscle) q.set('muscle_group', params.muscle)
+  if (params?.equipment) q.set('equipment', params.equipment)
+  if (params?.category) q.set('category', params.category)
   const r = await fetch(`${BASE}/api/exercises?${q}`, { headers: authHeader() })
   if (!r.ok) throw new Error('Error ejercicios')
   return r.json() as Promise<{ data: Exercise[]; total: number; pages: number }>
@@ -147,4 +149,36 @@ export async function flushPendingSets(session?: SessionMeta) {
   if (sets.length === 0 && !session) return
   await syncSets(sets, session)
   clearPendingSets()
+}
+
+// ─── Active workout persistence (survives tab reload / app switch) ───
+export interface ActiveWorkoutSnapshot {
+  exercises: RoutineExercise[]
+  dayName: string
+  focus: string
+  currentIdx: number
+  exerciseLogs: Record<number, { weightKg: number; reps: number; done: boolean }[]>
+  sessionId: string
+  startedAt: number
+  completedExercises: number[]
+}
+
+const ACTIVE_WORKOUT_KEY = 'gymaura_active_workout'
+
+export function getActiveWorkout(): ActiveWorkoutSnapshot | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_WORKOUT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || !Array.isArray(parsed.exercises) || parsed.exercises.length === 0) return null
+    return parsed
+  } catch { return null }
+}
+
+export function saveActiveWorkout(w: ActiveWorkoutSnapshot) {
+  try { localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(w)) } catch {}
+}
+
+export function clearActiveWorkout() {
+  localStorage.removeItem(ACTIVE_WORKOUT_KEY)
 }

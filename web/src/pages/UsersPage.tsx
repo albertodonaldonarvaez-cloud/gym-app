@@ -153,7 +153,7 @@ export default function UsersPage() {
               onClick={() => setRoleFilter(tab)}
               className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                 roleFilter === tab
-                  ? 'bg-brand-600 text-gray-900 shadow-lg shadow-brand-600/25'
+                  ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
@@ -222,7 +222,7 @@ export default function UsersPage() {
                         {new Date(u.createdAt).toLocaleDateString('es-ES')}
                       </td>
                       <td className="py-4 px-6">
-                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                           <button onClick={() => openEdit(u)} className="btn-ghost text-xs py-1.5 px-3">
                             <Edit3 className="w-3.5 h-3.5" /> Editar
                           </button>
@@ -277,7 +277,7 @@ export default function UsersPage() {
                       onClick={() => setFormRole(r)}
                       className={`flex-1 py-2.5 rounded-xl text-xs font-semibold transition-all border ${
                         formRole === r
-                          ? 'bg-brand-600 text-gray-900 border-brand-500 shadow-lg shadow-brand-600/25'
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                           : 'bg-gray-100 text-gray-500 border-gray-300 hover:border-gray-300'
                       }`}
                     >

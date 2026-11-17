@@ -12,6 +12,7 @@ const { PrismaClient } = require('@prisma/client');
 const rateLimit = require('express-rate-limit');
 const { execFile } = require('child_process');
 const nodemailer = require('nodemailer');
+const { syncExerciseCatalog } = require('./seed-hasaneyldrm');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -915,16 +916,43 @@ app.post('/api/clients', authMiddleware, coachOnly, async (req, res) => {
 
 // ─── EXERCISES ─────────────────────────────────────────────────────────────────
 const FREE_EXERCISE_CDN = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises';
+const HASAN_EXERCISE_CDN = 'https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main';
+
+const MUSCLE_ALIASES = {
+  'pecho': ['Pecho', 'Pecho Superior', 'Serrato'],
+  'espalda': ['Espalda', 'Espalda (Lat)', 'Espalda Media', 'Espalda Baja', 'Trapecios'],
+  'hombros': ['Hombros', 'Hombros Posteriores', 'Manguito Rotador'],
+  'biceps': ['Bíceps', 'Biceps'],
+  'bíceps': ['Bíceps', 'Biceps'],
+  'triceps': ['Tríceps', 'Triceps'],
+  'tríceps': ['Tríceps', 'Triceps'],
+  'antebrazos': ['Antebrazos'],
+  'brazos': ['Bíceps', 'Biceps', 'Tríceps', 'Triceps', 'Antebrazos'],
+  'piernas': ['Piernas', 'Cuádriceps', 'Cuadriceps', 'Isquiotibiales', 'Glúteos', 'Gluteos', 'Gemelos', 'Abductores', 'Aductores'],
+  'cuadriceps': ['Cuádriceps', 'Cuadriceps'],
+  'cuádriceps': ['Cuádriceps', 'Cuadriceps'],
+  'isquiotibiales': ['Isquiotibiales'],
+  'gluteos': ['Glúteos', 'Gluteos'],
+  'glúteos': ['Glúteos', 'Gluteos'],
+  'gemelos': ['Gemelos'],
+  'abdomen': ['Abdomen', 'Oblicuos', 'Core'],
+  'abductores': ['Abductores'],
+  'aductores': ['Aductores'],
+};
 
 /**
  * Construye el array de URLs de imagen para un ejercicio.
- * Si tiene mediaFilename (viene del Free Exercise DB), genera ambas imágenes (0.jpg y 1.jpg).
- * Si tiene mediaUrl custom (subida por el coach), la devuelve como único elemento.
+ * - Si mediaFilename empieza con 'hy:' -> [GIF animado, JPG de respaldo]
+ * - Si mediaFilename es de Free Exercise DB (Dir/0.jpg) -> [0.jpg, 1.jpg]
+ * - Si tiene mediaUrl custom -> [mediaUrl]
  */
 function buildImageUrls(exercise) {
-  if (exercise.mediaFilename) {
-    // Free Exercise DB: las imágenes están en /ExerciseId/0.jpg y /ExerciseId/1.jpg
-    const dir = exercise.mediaFilename.replace(/\/\d+\.jpg$/, '');
+  if (exercise.mediaFilename && exercise.mediaFilename.startsWith('hy:')) {
+    const fallbackJpg = `${HASAN_EXERCISE_CDN}/${exercise.mediaFilename.slice(3)}`;
+    return [...new Set([exercise.mediaUrl, fallbackJpg].filter(Boolean))];
+  }
+  if (exercise.mediaFilename && /\/\d+\.jpg$/i.test(exercise.mediaFilename)) {
+    const dir = exercise.mediaFilename.replace(/\/\d+\.jpg$/i, '');
     return [
       `${FREE_EXERCISE_CDN}/${dir}/0.jpg`,
       `${FREE_EXERCISE_CDN}/${dir}/1.jpg`,
@@ -936,15 +964,53 @@ function buildImageUrls(exercise) {
 
 app.get('/api/exercises', async (req, res) => {
   try {
-    const { category, search, muscle_group, page, limit } = req.query;
-    const where = {};
-    if (category && category !== 'Todos') where.category = category;
-    if (muscle_group && muscle_group !== 'Todos') where.muscleGroup = { contains: muscle_group, mode: 'insensitive' };
-    if (search) where.OR = [
-      { name: { contains: search, mode: 'insensitive' } },
-      { muscleGroup: { contains: search, mode: 'insensitive' } },
-      { equipment: { contains: search, mode: 'insensitive' } },
-    ];
+    const { category, search, muscle_group, muscle, equipment, has_media, page, limit } = req.query;
+    const andConditions = [];
+
+    if (category && category !== 'Todos') {
+      andConditions.push({ category });
+    }
+
+    const muscleParam = String(muscle_group || muscle || '').trim();
+    if (muscleParam && muscleParam !== 'Todos') {
+      const key = muscleParam.toLowerCase();
+      if (key === 'cardio') {
+        andConditions.push({
+          OR: [
+            { category: 'Cardio' },
+            { muscleGroup: { contains: 'Cardio', mode: 'insensitive' } },
+          ],
+        });
+      } else if (MUSCLE_ALIASES[key]) {
+        andConditions.push({ muscleGroup: { in: MUSCLE_ALIASES[key] } });
+      } else {
+        andConditions.push({ muscleGroup: { contains: muscleParam, mode: 'insensitive' } });
+      }
+    }
+
+    if (equipment && equipment !== 'Todos') {
+      andConditions.push({ equipment: { contains: String(equipment).trim(), mode: 'insensitive' } });
+    }
+
+    if (has_media === '1' || has_media === 'true') {
+      andConditions.push({ mediaUrl: { not: null } });
+    }
+
+    if (search) {
+      const tokens = String(search).trim().split(/\s+/).filter(Boolean).slice(0, 6);
+      for (const tok of tokens) {
+        andConditions.push({
+          OR: [
+            { name: { contains: tok, mode: 'insensitive' } },
+            { muscleGroup: { contains: tok, mode: 'insensitive' } },
+            { equipment: { contains: tok, mode: 'insensitive' } },
+            { category: { contains: tok, mode: 'insensitive' } },
+          ],
+        });
+      }
+    }
+
+    const where = andConditions.length > 0 ? { AND: andConditions } : {};
 
     const pageNum  = Math.max(1, parseInt(page)  || 1);
     const pageSize = Math.min(2000, parseInt(limit) || 50);
@@ -982,6 +1048,16 @@ app.get('/api/exercises', async (req, res) => {
       pages: Math.ceil(total / pageSize),
     });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/exercises/sync-catalog', authMiddleware, coachOnly, async (req, res) => {
+  try {
+    const stats = await syncExerciseCatalog({ prisma, force: true });
+    res.json({ ok: true, ...stats });
+  } catch (e) {
+    console.error('Sync catalog error:', e);
+    res.status(500).json({ error: e.message || 'Error al sincronizar catálogo' });
+  }
 });
 
 
@@ -2356,4 +2432,7 @@ app.post('/api/v1/admin/fix-missing-media', authMiddleware, adminOnly, async (re
 // Start Server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 GymAura Server v2 ejecutándose en http://0.0.0.0:${PORT}`);
+  setImmediate(() => {
+    syncExerciseCatalog({ prisma }).catch(err => console.error('Auto-sync exercises error:', err.message));
+  });
 });

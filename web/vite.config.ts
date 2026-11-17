@@ -99,23 +99,23 @@ export default defineConfig({
               cacheableResponse: { statuses: [0, 200] },
             },
           },
-          // History + exercises API: stale while revalidate
+          // History, profile, body-scans & exercises API: stale while revalidate
           {
-            urlPattern: /\/api\/v1\/(user\/workout-history|exercises)/,
+            urlPattern: /\/api\/(exercises|v1\/(user\/workout-history|exercises|user\/profile|user\/body-scans))/,
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'api-data',
-              expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
+              expiration: { maxEntries: 120, maxAgeSeconds: 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
-          // Exercise GIFs from GitHub CDN: cache first (they never change)
+          // Exercise GIFs & images from GitHub CDN: cache first
           {
-            urlPattern: /^https:\/\/raw\.githubusercontent\.com\/.+\.(gif|png|jpg)$/i,
+            urlPattern: /^https:\/\/raw\.githubusercontent\.com\/.+\.(gif|png|jpg|jpeg|webp)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'exercise-media',
-              expiration: { maxEntries: 300, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              expiration: { maxEntries: 600, maxAgeSeconds: 30 * 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
